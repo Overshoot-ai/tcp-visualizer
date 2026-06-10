@@ -1,0 +1,13 @@
+{
+  "name": "tcp-inflight-visualizer",
+  "version": "1.0.0",
+  "description": "Interactive in-browser simulator and visualizer of TCP congestion control on a single bulk transfer",
+  "license": "MIT",
+  "scripts": {
+    "serve": "python3 -m http.server 8080",
+    "cli": "node sim-cli.js"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^25.0.4"
+  }
+}

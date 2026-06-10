@@ -1,0 +1,339 @@
+# TCP in-flight visualizer
+
+> An interactive browser-based simulator for **TCP behavior on a single bulk transfer**. Visualizes the sender, receiver,
+> kernel buffers on both ends, the bottleneck router queue between them, and the network in between. Includes a
+> programmable JavaScript API (`window.SimAgent`) so agents can configure runs, read structured results, and watch the
+> same animation a human would see.
+
+The deployed root (`index.html`) is a thin iframe wrapper. The actual page (with `window.SimAgent`) is
+`tcp-inflight.html` and loads inside the iframe. Agents driving the deployed root should target the iframe's
+`contentWindow`; agents loading `tcp-inflight.html` directly get `window.SimAgent` on the top window.
+
+---
+
+## What this is
+
+TCP (Transmission Control Protocol) is the protocol that does almost all bulk data transfer on the internet — file
+uploads, HTTP requests, video streaming control planes, etc. It's reliable (retransmits lost packets), ordered, and
+**congestion-controlled** (adapts its send rate to network conditions). The exact way TCP adapts — its *congestion
+control algorithm* — has huge implications for real-world throughput, latency, and how a single connection behaves on
+shared infrastructure.
+
+This site simulates a single TCP transfer (one client → one server, sending e.g. a 10 MB body) over a network with a
+configurable bottleneck. You can watch every byte of the request leave the sender, traverse the network, queue at the
+bottleneck, and arrive at the receiver. The simulator models **TCP Cubic** (the default congestion control in Linux
+since ~2008), with slow-start, Hystart, fast retransmit, fast recovery, and RTO, plus **TCP BBR** (Google's 2016
+model-based controller). It also models **bottleneck queue dynamics** — packets fill the queue, queue overflow causes
+drops, drops trigger retransmits — and **flow control** via finite kernel buffers.
+
+The intended audience is anyone who wants to *see* how TCP works under specific conditions: developers debugging
+transfer performance, students learning networking, agents running experiments. The visualization is the teaching tool;
+the agent API makes it possible to run experiments programmatically.
+
+## What the screen shows
+
+**Top region** (~65% of canvas):
+
+- **Left column — Sender**:
+  - *Body grid* on top: a grid of cells, one per MSS-sized packet of the payload. Cells are bright cyan when "buffered"
+    (data exists on the sender ready to go), blue when "in flight" (this packet has been sent but not yet
+    acknowledged), dim when "drained" (sent and acknowledged).
+  - *send-buffer bucket (wmem)* below: visualizes the kernel send buffer (`tcp_wmem`). Cells are packet-sized slots. Filled cells = bytes
+    the app has written to the kernel that haven't been ACKed yet.
+- **Middle column — HUD**: live numbers — goodput (KB/ms and Mbps), bound-by, request time, completion %, and a dense
+  stats grid below with cwnd, in-flight bytes, queue depth, retransmits, recv window, etc.
+- **Right column — Receiver**: mirror of the sender's body grid and recv-buffer bucket (rmem). Cells turn bright cyan as packets
+  arrive.
+
+**Bottom region** (~35% of canvas, full canvas width):
+
+- **Network band**: a horizontal strip showing packets in transit. Split in two legs (pre-queue, post-queue) by the
+  bottleneck router buffer in the middle. Data packets (blue dots) flow left-to-right along the top half; ACKs (green
+  dots) flow right-to-left along the bottom half. Packet Y position is random (just for visual separation — TCP is a
+  single byte stream physically).
+- **Router buffer** (bottleneck): a vertical bucket in the middle of the band. Cells = MSS-sized slots; the bucket's
+  height scales with the configured `queue` size. When a packet arrives at a full router buffer, it gets *dropped* —
+  visualized as a red dot falling out the bottom of the bucket (gravity-like animation in real time).
+
+**Sidebar** (right of canvas):
+
+- Preset selector + scenario card (story, what to watch, expected outcome)
+- Knobs (sliders): RTT, cwnd, MSS, payload, sim speed, link bw, router buffer, loss %, and the congestion-control
+  options.
+- Collapsible "Buffers" section: send buffer (wmem), app write rate, receive buffer (rmem), app read rate.
+- Start / Pause / Reset controls.
+- Glossary: clickable terms (RTT, BDP, cwnd, Hystart, fast retransmit, etc.) with definitions. The canvas components
+  themselves are also click targets (body grids, wmem/rmem buckets, router queue bucket, network band), as are legend
+  items, and glossary/preset prose cross-links every known term it mentions.
+
+## Key TCP concepts you'll see in action
+
+Anchored to what each one looks like on screen:
+
+- **RTT** (round-trip time, in ms): how long a packet plus its ACK takes to traverse the network. Each packet takes
+  RTT/2 across the band; its ACK takes another RTT/2 back. Knob: `RTT (ms)`.
+- **MSS** (maximum segment size, bytes): how big each packet is (TCP's formal term for its data unit: segment). Typically ~1300–1500 bytes. Knob: `Packet size (MSS)`.
+- **cwnd** (congestion window, in packets): a per-connection cap on the number of packets the sender may have
+  *unacknowledged on the wire*. The goodput a single TCP flow can sustain is approximately `cwnd × MSS / RTT`. Knob:
+  `cwnd (pkts)`.
+- **BDP** (bandwidth-delay product): `link_bw × RTT / 8` in bytes — the "natural pipe size" of the path. Cwnd should
+  reach BDP for TCP to fill the pipe. Derived from knobs.
+- **slow-start**: TCP's startup phase. Cwnd starts small (typically 10 packets) and doubles every RTT until something
+  stops it (loss, Hystart, or `ssthresh`). Animation: cwnd ramps up exponentially.
+- **Hystart**: an algorithm that exits slow-start *before* cwnd causes a loss by detecting queueing (the simulator's
+  Hystart fires when cwnd × MSS > BDP). Animation: after Hystart fires, cwnd stops doubling and grows linearly.
+- **Cubic**: the modern congestion control algorithm. On loss, cwnd is cut multiplicatively (×0.7 in Cubic). It then
+  regrows along a cubic curve toward the prior peak. Default since Linux 2.6.19.
+- **BBR**: Google's 2016 model-based congestion control. Instead of reacting to packet loss, it continuously estimates
+  two physical quantities — `BtlBw` (max delivery rate over the last ~10 RTTs) and `RTprop` (min RTT over the last
+  ~10 sec). The sender paces packets at `BtlBw × pacing_gain` with cwnd capped at `BtlBw × RTprop × cwnd_gain`
+  (~2× BDP). State machine: STARTUP doubles per RTT until delivery rate plateaus, DRAIN drains the queue STARTUP
+  built, PROBE_BW runs an 8-phase pacing cycle `[1.25, 0.75, 1, 1, 1, 1, 1, 1]` to keep probing for more bandwidth,
+  PROBE_RTT briefly drops cwnd to 4 packets every 10 sec to re-measure RTprop. Largely ignores packet loss — designed for
+  lossy or shallow-buffered paths where Cubic collapses.
+- **Fast retransmit**: when 3 dup-ACKs arrive (signal that a packet is missing), the sender retransmits without waiting
+  for an RTO timeout.
+- **Fast recovery**: the cwnd reduction (×0.7) is mild and recovery proceeds via cubic regrowth; cwnd doesn't crash to
+  the initial value.
+- **RTO** (retransmission timeout): the catastrophic loss path. Cwnd resets to the initial value (e.g., 10) and
+  slow-start restarts. Reserved for serious problems.
+- **Router buffer (bottleneck queue)**: the buffer at the path's slowest link. Packets queue here when arrival rate >
+  drain rate. If it fills, packets drop. Knob: `Router (KB)`.
+- **send / receive buffers (wmem / rmem)**: the sender's and receiver's kernel TCP buffers. wmem holds bytes from the app's write call until
+  ACKed (kernel needs them in case of retransmit). rmem holds arrived bytes until the receiver app reads them. The
+  receiver advertises `rwnd = rmem − rmem_used` to the sender; sender's effective window is `min(cwnd, rwnd)`. Knobs in
+  the "Buffers" section.
+
+## Knobs (full reference)
+
+All knobs are settable via `SimAgent.configure({...})` or via the sliders in the sidebar.
+
+| Knob | API param | Range | What it does |
+|---|---|---|---|
+| RTT (ms) | `rtt` | 1–1000 | Round-trip time. Packets take RTT/2 across the band. |
+| cwnd (pkts) | `cwnd` | 1–65536 | Hard cap on unacked segments. Used directly in `custom` cc mode; auto-managed in `cubic`/`bbr`. |
+| Init cwnd (pkts) | `initialCwndSeg` | 1–65536 | Cwnd at the start of a cubic or BBR run (RFC 6928 default is 10). |
+| Packet size (MSS) | `mss` | 500–9000 | Max data bytes per packet. |
+| Payload (MB) | `payloadMb` | 0.1–500 | Total request size. |
+| Sim speed | `simSpeed` | 0–1 | Wall-clock to sim-clock ratio (log scale). 0.02 = 50× slow-mo for watching. |
+| Link bw (Mbps) | `linkBwMbps` | 1–100000 | Bottleneck rate the flow sees. |
+| Router (KB) | `queueKB` | 4–65536 | Bottleneck buffer size (log-scale slider). |
+| Loss (%) | `lossPct` | 0–20 | Background per-packet random loss (independent of queue overflow). |
+| send buf (KB) | `wmemKB` | 4–32768 | Sender kernel send buffer (wmem). |
+| recv buf (KB) | `rmemKB` | 4–32768 | Receiver kernel recv buffer (rmem). |
+| app write (Mbps) | `appWriteMbps` | 0–10000 | App→wmem write rate. 0 = saturate. |
+| app read (Mbps) | `appReadMbps` | 0–10000 | rmem→app drain rate. 0 = saturate. |
+| Mode | `mode` | tcp \| udp | UDP disables ACKs, retransmits, flow control. |
+| CC algo | `ccMode` | custom \| cubic \| bbr | "custom" keeps cwnd at the knob value; "cubic" runs RFC 8312; "bbr" runs Google's 2016 BBR. |
+
+### Presets
+
+Seven scenario presets, each a self-contained lesson. A preset sets every model knob plus the congestion-control mode
+and initial cwnd. Apply via `SimAgent.applyPreset(name)`:
+
+| Preset key | Scenario | The lesson |
+|---|---|---|
+| `healthy` | 40 ms RTT, 200 Mbps, ample buffer | Clean slow-start → Hystart → saturated link. 10 MB in ~0.7 s. |
+| `cwnd-buildup` | 150 ms RTT, 300 Mbps (big BDP), IW 10 | Cold connections spend the transfer ramping cwnd. 20 MB in ~2 s. |
+| `warm-start` | Same path, IW = BDP (~3852 pkts) | The ramp disappears: same 20 MB in ~0.8 s. |
+| `congestion` | 60 ms RTT, 150 Mbps, 96 KB router buffer | Shallow-buffer overflow: drops, sawtooth, ~5 Mbps crawl. |
+| `bufferbloat` | 30 ms RTT, 50 Mbps, 4 MB buffer, fixed cwnd 2000 | Standing queue ~450 ms dwell; nothing drops, nothing slows down. |
+| `lossy` | 50 ms RTT, 100 Mbps, 2% random loss | Cubic usually crawls at ~1 Mbps (high run-to-run variance); `bbr` → ~25 Mbps consistently. |
+| `slow-receiver` | 200 Mbps link, app reads at 40 Mbps, 256 KB recv buffer | rwnd collapse + zero-window stalls; flow control sets the pace. |
+
+## Agent API: `window.SimAgent`
+
+Loaded on the page. Use it from page-world JavaScript (Playwright's `page.evaluate`, devtools console, browser-extension
+injected scripts, or similar). From within an iframe-wrapper page, access via
+`document.querySelector('iframe').contentWindow.SimAgent`.
+
+### Methods
+
+```js
+// --- configure ---
+SimAgent.applyPreset(name)                   // preset key from the table above — resets
+SimAgent.configure(params)                   // partial config, see knobs table for keys
+SimAgent.setMode("tcp" | "udp")
+SimAgent.setCcMode("custom" | "cubic" | "bbr")
+
+// --- control ---
+SimAgent.reset()
+SimAgent.start()                             // begin RAF loop (visual playback)
+SimAgent.pause()
+SimAgent.step(ms)                            // advance N sim-ms synchronously
+SimAgent.isRunning()                         // bool
+
+// --- run-to-completion (both deterministic and visual) ---
+await SimAgent.runToCompletion({ visual, maxSimMs })
+  // visual: false (default) — tight loop, returns in ms wall-time, no animation
+  // visual: true            — RAF loop, animates at current simSpeed, resolves on finish
+  // maxSimMs: cap on sim time (default 60000)
+
+await SimAgent.runUntil(predicate, { visual, maxSimMs })
+  // predicate(state) returning bool — stop when true
+  // e.g. SimAgent.runUntil(s => s.cc_phase === "cong-avoid")
+
+// --- read ---
+SimAgent.getState()                          // current state snapshot
+SimAgent.getSummary()                        // computed summary of the run
+SimAgent.getTrace()                          // array of 10 Hz samples
+SimAgent.getEvents()                         // discrete events
+SimAgent.getArtifact()                       // { run_id, version, config, samples, events, summary }
+
+// --- replay a captured artifact, visually ---
+await SimAgent.replay(artifact, { speed })
+
+// --- meta ---
+SimAgent.version                             // "1.0"
+```
+
+### Sample shape (10 Hz)
+
+```js
+{
+  t_ms: 412,                       // sim time of this sample
+  cwnd_seg: 1284,                  // current cwnd in segments
+  cc_phase: "cong-avoid",          // "slow-start" | "cong-avoid"
+  in_recovery: false,
+  inflight_seg: 950,
+  inflight_bytes: 1024576,
+  q_depth_bytes: 384000,           // bottleneck queue depth
+  q_drops_cumulative: 2,
+  retransmits_cumulative: 0,
+  acked_seg: 412,
+  recv_seg: 489,
+  goodput_KBms: 14.8,
+  goodput_Mbps: 121,
+  rtt_ms: 60,                      // knob at moment of sample
+  link_bw_mbps: 230,
+  mss_B: 1398,
+  wmem_used_bytes: 1024576,
+  rmem_used_bytes: 81084,
+  advertised_rwnd_seg: 2950
+}
+```
+
+### Event types
+
+Emitted at most once per transition:
+
+- `first_loss`: first time the simulation experiences any loss (queue or background)
+- `hystart_exit`: cwnd crossed BDP and slow-start switched to cong-avoid
+- `recovery_enter` / `recovery_exit`: fast-recovery boundaries
+- `rto`: a retransmission-timeout fired (severe loss path)
+- `queue_drop_burst`: ≥5 drops in one sample interval (sign of bursty overflow)
+- `bbr_state_change`: BBR transitioned between states (startup / drain / probe_bw / probe_rtt). Data includes the
+  current `btlBw_Mbps` and `rtprop_ms`. Only emitted in `ccMode: "bbr"`.
+- `finished`: sim completed (all payload acknowledged)
+
+### Artifact shape
+
+`getArtifact()` returns a fully self-contained record of the run:
+
+```js
+{
+  run_id: "uuid",
+  version: "1.0",
+  config: { /* every knob value at run time */ },
+  samples: [ /* 10 Hz snapshots */ ],
+  events: [ /* discrete events */ ],
+  summary: {
+    completed: true,
+    elapsed_sim_ms: 725,
+    acked_segments: 7182,
+    acked_pct: 100,
+    goodput_KBms: 14.46,
+    goodput_Mbps: 115.7,
+    cwnd_min: 10, cwnd_max: 713, cwnd_final: 713,
+    queue_drops_total: 0,
+    retransmits_total: 0,
+    wmem_peak_bytes: 4194000,
+    rmem_peak_bytes: 215292,
+    first_loss_t_ms: null,
+    hystart_exit_t_ms: 502.5
+  }
+}
+```
+
+## Examples
+
+### Run a scenario deterministically
+
+```js
+SimAgent.applyPreset("healthy");
+await SimAgent.runToCompletion({ visual: false });
+SimAgent.getSummary();
+// → { completed: true, elapsed_sim_ms: 725, goodput_Mbps: 115.7, ... }
+```
+
+### Sweep a knob, watch each run
+
+```js
+const results = [];
+for (const queueKB of [50, 200, 500, 1500, 4500]) {
+  SimAgent.applyPreset("congestion");
+  SimAgent.configure({ queueKB, simSpeed: 0.3 });
+  await SimAgent.runToCompletion({ visual: true });
+  results.push({ queueKB, ...SimAgent.getSummary() });
+}
+```
+
+### Stop on first loss
+
+```js
+SimAgent.applyPreset("congestion");
+await SimAgent.runUntil(s => s.q_drops_cumulative > 0 || s.retransmits_cumulative > 0);
+SimAgent.getState();
+// → state at first loss
+```
+
+### Compare cubic to BBR on a lossy link
+
+```js
+const traces = {};
+for (const cc of ["cubic", "bbr"]) {
+  SimAgent.applyPreset("lossy");
+  SimAgent.setCcMode(cc);
+  await SimAgent.runToCompletion({ visual: false });
+  traces[cc] = SimAgent.getArtifact();
+}
+```
+
+## Driving the page from outside the browser
+
+The agent API lives in the page's JavaScript context. To reach it from external automation:
+
+- **Playwright / Puppeteer**: `page.evaluate(async () => { ... SimAgent.something() })` works directly because
+  `page.evaluate` runs in page world. See `examples/agent-driver.js`.
+- Browser automation that runs scripts in an *isolated world* (e.g. AppleScript's `execute javascript`) can't see
+  `window.SimAgent` directly. Workaround: inject a `<script>` element into the page world, have it write results to
+  `document.title`, then poll the title from outside.
+
+## Fidelity notes
+
+This is a teaching model, not a packet-accurate emulator. `link_bw` represents the *effective bottleneck rate this
+flow sees* (its share of capacity after contention), not the nominal wire bandwidth. Cubic sends are ACK-clocked but
+unpaced — a cwnd-worth of segments can hit the queue at line rate, which makes shallow-buffer scenarios harsher than
+reality. Hystart exits slow-start at exactly BDP and switches to linear AIMD growth until the first loss anchors the
+cubic curve. The RTO model is simplified (fires one RTT after send; no exponential backoff). BBR ignores loss
+entirely, as BBRv1 largely did.
+
+## Constraints (things you cannot do as an agent)
+
+- Read the rendered canvas pixels — only structured state via the API.
+- Modify the page DOM/CSS beyond what the agent API allows.
+- Persist state across page reloads.
+- Run multiple simulations in parallel from a single tab.
+
+## Source
+
+The architecture, in five files:
+
+- `sim-core.js` — pure simulation model (sim state factory, step function, presets). No DOM. Usable in Node or browser.
+- `sim-runner.js` — shared runner. Owns the RAF loop (browser) and the tight deterministic loop (Node). Captures 10 Hz
+  samples and discrete events.
+- `sim-agent-api.js` — exposes `window.SimAgent`.
+- `tcp-inflight.html` — the page. Visualization, controls, hooks into the runner.
+- `sim-cli.js` — CLI usage (`node sim-cli.js --preset healthy`).
+
+Plus `examples/agent-driver.js`, a Puppeteer script that drives the page end to end.
