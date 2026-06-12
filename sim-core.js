@@ -282,6 +282,13 @@
       nextSendIdx: 0,
       lastPacketLeaveTime: 0,
       ackedCount: 0,
+      // Total segments ACKed regardless of order (SACK-style). ackedCount
+      // only advances in-order, so it stalls at every loss hole; BBR's
+      // delivery-rate samples must keep flowing through holes.
+      deliveredCount: 0,
+      // Highest segment idx ACKed so far (-1 = none). Sends are in-order, so
+      // an unACKed segment with ≥3 ACKed segments above it is presumed lost.
+      highestAckedIdx: -1,
       highestRecvd: 0,
       recvSet: null,
       ackedSet: null,
@@ -344,6 +351,8 @@
     sim.lastRealTs = 0;
     sim.nextSendIdx = 0;
     sim.ackedCount = 0;
+    sim.deliveredCount = 0;
+    sim.highestAckedIdx = -1;
     sim.highestRecvd = 0;
     sim.inflight = [];
     sim.retransmits = 0;
@@ -534,10 +543,17 @@
       done: false,
       timeoutAt: sentAt + sim.rtt,
       wmemFreed: false,
-      // BBR per-packet bookkeeping: snapshot of delivered-bytes counter at
-      // send (for delivery-rate computation on ACK).
-      deliveredAtSend: sim.ackedCount,
-      sentSimTime: pushedAt,
+      // BBR per-packet bookkeeping for delivery-rate sampling on ACK. The
+      // pacer schedules emission (pushedAt) into the future, so the snapshot
+      // pair (deliveredAtSend, sentSimTime) taken now is provisional; step()
+      // re-snapshots both at the first tick after actual emission
+      // (delivSnapped). Snapshotting now but measuring time from pushedAt
+      // would inflate the sample (BtlBw above link rate → standing
+      // self-queue); measuring time from now would deflate it by the pacer
+      // backlog (STARTUP overdrives the pacer by design).
+      deliveredAtSend: sim.deliveredCount,
+      sentSimTime: sim.simTime,
+      delivSnapped: false,
       // Two independent y-jitters: yJitter for the pre-queue leg (and the
       // ACK leg, mirrored), exitYJitter for the post-queue leg. Reflects the
       // queue's lack of position preservation — same packet enters at one y
@@ -558,16 +574,19 @@
         break;
       }
     }
+    sim.inRecovery = true;
+    sim.recoveryHighSeq = Math.max(sim.recoveryHighSeq, sim.nextSendIdx - 1);
+    sim.dupAckCount = 0;
+    // BBR retransmits the hole but does NOT cut its window on loss — its
+    // rate is set by the BtlBw/RTprop model, not by loss events.
+    if (sim.ccMode === "bbr") return;
     sim.preLossCwnd = sim.cwndSeg;
     sim.wmax = sim.cwndSeg;
     sim.ssthresh = Math.max(2, Math.floor(sim.cwndSeg * 0.7));
     sim.cwndSeg = sim.ssthresh;
-    sim.inRecovery = true;
-    sim.recoveryHighSeq = Math.max(sim.recoveryHighSeq, sim.nextSendIdx - 1);
     sim.lastLossSimTime = sim.simTime;
     sim.cubicAnchored = true;
     sim.ccPhase = "cong-avoid";
-    sim.dupAckCount = 0;
   }
 
   // RFC 6582 NewReno partial-ACK retransmit. Called during fast recovery
@@ -616,10 +635,17 @@
   const BBR_STARTUP_GROWTH_THRESHOLD = 1.25;
   const BBR_STARTUP_FULL_BW_COUNT = 3;
 
+  // Bytes actually in the network: emitted (pushedAt reached) but not yet
+  // ACKed. Excludes the pacer backlog — packets scheduled into the future.
+  // Used by the DRAIN exit check, which compares against 1×BDP; counting the
+  // backlog would keep DRAIN's 2.89×BDP of committed segments permanently
+  // above the threshold, and a never-ending DRAIN (pacing 0.345×BtlBw) lets
+  // the good BtlBw samples expire from the max-filter — a death spiral.
   function inflightBytesNow(sim) {
     let n = 0;
     for (let i = 0; i < sim.inflight.length; i++) {
-      if (!sim.inflight[i].done) n++;
+      const p = sim.inflight[i];
+      if (!p.done && p.pushedAt <= sim.simTime) n++;
     }
     return n * sim.mss;
   }
@@ -699,21 +725,33 @@
       sim.bbr_pacingGain = BBR_PROBE_BW_GAIN_CYCLE[sim.bbr_probeBwPhase];
     }
 
-    // Derive pacing rate and cwnd.
+    // Derive pacing rate and cwnd. Until STARTUP declares the pipe full,
+    // neither is allowed to DECREASE (mirrors Linux bbr_update_pacing_rate /
+    // bbr_set_cwnd): the first delivery-rate samples are noisy-low (one ACK
+    // over a full RTT), and acting on them would collapse the pacer and bake
+    // huge inter-packet gaps into the send schedule.
+    const pipeFilling = sim.bbr_state === "startup";
     if (sim.bbr_btlBw_BytesPerMs > 0) {
-      sim.bbr_pacingRate_BytesPerMs = sim.bbr_btlBw_BytesPerMs * sim.bbr_pacingGain;
+      const rate = sim.bbr_btlBw_BytesPerMs * sim.bbr_pacingGain;
+      sim.bbr_pacingRate_BytesPerMs = pipeFilling
+        ? Math.max(rate, sim.bbr_pacingRate_BytesPerMs)
+        : rate;
     } else {
       // Bootstrap pacing rate before any samples land.
       const rtt = sim.rtt > 0 ? sim.rtt : 1;
-      sim.bbr_pacingRate_BytesPerMs = (sim.initialCwndSeg * sim.mss) / rtt;
+      sim.bbr_pacingRate_BytesPerMs = Math.max(
+        sim.bbr_pacingRate_BytesPerMs,
+        (sim.initialCwndSeg * sim.mss) / rtt
+      );
     }
     if (sim.bbr_state === "probe_rtt") {
       sim.bbr_cwnd_seg = BBR_PROBE_RTT_CWND_SEG;
     } else if (sim.bbr_btlBw_BytesPerMs > 0 && sim.bbr_rtprop_ms < Infinity) {
-      sim.bbr_cwnd_seg = Math.max(
+      const target = Math.max(
         4,
         Math.floor((sim.bbr_btlBw_BytesPerMs * sim.bbr_rtprop_ms * sim.bbr_cwndGain) / sim.mss)
       );
+      sim.bbr_cwnd_seg = pipeFilling ? Math.max(target, sim.bbr_cwnd_seg) : target;
     } else {
       // No samples yet — keep a small bootstrap window so we can probe.
       sim.bbr_cwnd_seg = Math.max(4, sim.initialCwndSeg);
@@ -801,12 +839,21 @@
       }
 
       // TCP path
+      // Deferred delivery snapshot at actual emission (≤ one sub-step late;
+      // always lands before the ACK, which is ≥ 3/4 RTT after emission).
+      if (!p.delivSnapped && sim.simTime >= p.pushedAt) {
+        p.deliveredAtSend = sim.deliveredCount;
+        p.sentSimTime = sim.simTime;
+        p.delivSnapped = true;
+      }
       if (!p.lost) {
         if (sim.simTime >= p.ackArriveAt) {
           if (!sim.ackedSet[p.idx]) {
             sim.ackedSet[p.idx] = 1;
+            sim.deliveredCount++;
+            if (p.idx > sim.highestAckedIdx) sim.highestAckedIdx = p.idx;
             sim.wmemUsed = Math.max(0, sim.wmemUsed - sim.mss);
-            if (sim.ccMode === "cubic" && p.idx > sim.ackedCount) {
+            if (p.idx > sim.ackedCount) {
               dupAcksThisStep++;
             }
             if (sim.ccMode === "cubic" && !sim.inRecovery) {
@@ -818,9 +865,10 @@
               }
             }
             if (sim.ccMode === "bbr") {
-              // Delivery-rate sample for this ACK (BBR).
-              // We count this ACK as delivered before sampling.
-              const deliveredNow = sim.ackedCount + 1;
+              // Delivery-rate sample for this ACK (BBR). deliveredCount
+              // already includes this ACK (incremented above) and keeps
+              // advancing through loss holes, unlike the in-order ackedCount.
+              const deliveredNow = sim.deliveredCount;
               const deliveredAtSend = p.deliveredAtSend != null ? p.deliveredAtSend : 0;
               const sentAtSim = p.sentSimTime != null ? p.sentSimTime : p.pushedAt;
               const deltaBytes = (deliveredNow - deliveredAtSend) * sim.mss;
@@ -897,6 +945,25 @@
       }
     }
 
+    // SACK-style loss repair (BBR only): the receiver ACKs every segment, so
+    // an unACKed original with ≥3 ACKed segments above it is presumed lost
+    // and retransmitted immediately — Linux BBR repairs via SACK/RACK rather
+    // than waiting out a timer. Originals only: a re-lost retransmit has the
+    // whole window ACKed above it already, so it must fall back to its timer
+    // or it would re-fire instantly before the rtx even lands. Cubic keeps
+    // its NewReno-style (non-SACK) recovery on purpose.
+    if (sim.mode === "tcp" && sim.ccMode === "bbr") {
+      const n = sim.inflight.length;
+      for (let i = 0; i < n; i++) {
+        const p = sim.inflight[i];
+        if (p.done || !p.lost || p.rtx) continue;
+        if (sim.highestAckedIdx >= p.idx + 3 && !sim.ackedSet[p.idx]) {
+          p.done = true;
+          sendSegment(sim, p.idx, true);
+        }
+      }
+    }
+
     if (sim.inflight.length > 4096) {
       sim.inflight = sim.inflight.filter((p) => !p.done);
     }
@@ -944,13 +1011,16 @@
     }
     const cumAdvanced = sim.ackedCount > oldAckedCount;
 
-    // Fast retransmit / recovery state machine (TCP + cubic only)
-    if (sim.mode === "tcp" && sim.ccMode === "cubic") {
+    // Fast retransmit / recovery state machine (TCP, cubic + bbr). BBR uses
+    // the same hole-detection and retransmit path but none of the cwnd
+    // surgery — runBbr() recomputes its window from the model every tick.
+    if (sim.mode === "tcp" && (sim.ccMode === "cubic" || sim.ccMode === "bbr")) {
+      const isBbr = sim.ccMode === "bbr";
       if (cumAdvanced) {
         if (sim.inRecovery) {
           if (sim.ackedCount > sim.recoveryHighSeq) {
             // Full ACK → exit recovery
-            sim.cwndSeg = Math.max(2, sim.ssthresh);
+            if (!isBbr) sim.cwndSeg = Math.max(2, sim.ssthresh);
             sim.inRecovery = false;
           } else {
             // Partial ACK during recovery: retransmit the new lowest
@@ -965,7 +1035,7 @@
           if (sim.dupAckCount >= 3) {
             triggerFastRetransmit(sim);
           }
-        } else {
+        } else if (!isBbr) {
           sim.cwndSeg += dupAcksThisStep;
         }
       }

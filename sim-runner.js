@@ -255,6 +255,10 @@
           cwnd_after: Math.floor(sim.cwndSeg),
         });
       } else if (
+        // Not in BBR mode: there the bootstrap cwnd (initialCwndSeg) snaps
+        // down to BtlBw×RTprop×gain as the first samples land — a normal
+        // model convergence, not an RTO.
+        sim.ccMode !== "bbr" &&
         prev.cwndSeg > 0 &&
         sim.cwndSeg <= prev.cwndSeg * 0.3 &&
         prev.cwndSeg - sim.cwndSeg >= 5 &&

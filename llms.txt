@@ -315,8 +315,11 @@ This is a teaching model, not a packet-accurate emulator. `link_bw` represents t
 flow sees* (its share of capacity after contention), not the nominal wire bandwidth. Cubic sends are ACK-clocked but
 unpaced — a cwnd-worth of segments can hit the queue at line rate, which makes shallow-buffer scenarios harsher than
 reality. Hystart exits slow-start at exactly BDP and switches to linear AIMD growth until the first loss anchors the
-cubic curve. The RTO model is simplified (fires one RTT after send; no exponential backoff). BBR ignores loss
-entirely, as BBRv1 largely did.
+cubic curve. The RTO model is simplified (fires one RTT after send; no exponential backoff). BBR repairs losses
+quickly (SACK-style: an unACKed segment with 3 ACKed segments above it is retransmitted immediately, plus dup-ACK
+fast retransmit) but ignores them for rate control, as BBRv1 largely did — its window/pacing come from the
+BtlBw/RTprop model only, so random loss barely dents BBR goodput while it cripples cubic. The `rto` event is not
+emitted in BBR mode.
 
 ## Constraints (things you cannot do as an agent)
 

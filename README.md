@@ -110,7 +110,9 @@ The repo is a static site. On Vercel, no configuration is needed beyond the incl
 This is a teaching model, not a packet-accurate network emulator. Simplifications worth knowing:
 one flow, one bottleneck; Cubic sends are ACK-clocked but unpaced (bursts hit the queue at line
 rate, so shallow-buffer scenarios are harsher than reality); Hystart exits slow-start exactly at
-BDP; the RTO model is simplified (no exponential backoff); BBR ignores loss entirely. The
+BDP; the RTO model is simplified (no exponential backoff); BBR repairs losses (SACK-style: a
+segment with 3 ACKed segments above it is retransmitted immediately) but ignores them for rate
+control, as real BBRv1 does. The
 qualitative dynamics — ramp shapes, sawtooth, standing queues, window stalls — match what you would
 see in a real trace.
 
