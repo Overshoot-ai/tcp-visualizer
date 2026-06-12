@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <style>
       :root {
+        color-scheme: dark;
         --bg: #0f1115;
         --panel: #161a22;
         --panel-2: #1c2230;
@@ -234,15 +235,71 @@
       .preset-select {
         display: block;
       }
+      /* Custom dropdown: the native <select> popup is an OS menu that cannot
+         be themed, so the select is kept hidden as the source of truth and a
+         styled button + listbox render in its place (built at init). */
       .preset-select select {
+        display: none;
+      }
+      .preset-dd {
+        position: relative;
+      }
+      .preset-dd-btn {
         width: 100%;
-        background: var(--panel-2);
+        appearance: none;
+        -webkit-appearance: none;
+        text-align: left;
+        background-color: var(--panel-2);
+        background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238a93a6' stroke-width='1.5'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 9px center;
         color: var(--ink);
         border: 1px solid var(--border);
         border-radius: 4px;
-        padding: 6px 8px;
+        padding: 6px 26px 6px 8px;
         font-family: var(--mono);
         font-size: 12px;
+        cursor: pointer;
+        transition: border-color 80ms;
+      }
+      .preset-dd-btn:hover {
+        border-color: var(--ink-faint);
+      }
+      .preset-dd-btn:focus-visible,
+      .preset-dd.open .preset-dd-btn {
+        outline: none;
+        border-color: var(--accent);
+      }
+      .preset-dd-menu {
+        display: none;
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        right: 0;
+        z-index: 60;
+        background: var(--panel-2);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 4px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+      }
+      .preset-dd.open .preset-dd-menu {
+        display: block;
+      }
+      .preset-dd-item {
+        padding: 6px 8px;
+        border-radius: 3px;
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--ink-dim);
+        cursor: pointer;
+      }
+      .preset-dd-item:hover {
+        background: #232c40;
+        color: var(--ink);
+      }
+      .preset-dd-item.active {
+        color: var(--accent-2);
       }
       /* Scenario card: the preset name lives in the selector above, so the
          card leads with the expected-outcome line and tucks the long prose
@@ -255,8 +312,7 @@
         font-size: 11px;
       }
       .preset-card .preset-expect {
-        color: var(--accent-2);
-        font-weight: 600;
+        color: var(--ink-dim);
         font-variant-numeric: tabular-nums;
         line-height: 1.5;
       }
@@ -267,10 +323,11 @@
         list-style: none;
         cursor: pointer;
         font-size: 10px;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
         color: var(--ink-faint);
         user-select: none;
+      }
+      .preset-card .preset-more > summary:hover {
+        color: var(--ink-dim);
       }
       .preset-card .preset-more > summary::-webkit-details-marker {
         display: none;
@@ -286,19 +343,17 @@
         transform: rotate(90deg);
       }
       .preset-card .preset-more-body {
-        margin-top: 2px;
-      }
-      .preset-card .pk-block {
         margin-top: 6px;
-        font-size: 9px;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        color: var(--ink-faint);
       }
       .preset-card .pv-block {
-        margin-top: 2px;
         color: var(--ink-dim);
         line-height: 1.5;
+      }
+      /* "watch" callout: quiet accent bar instead of a label. */
+      .preset-card .preset-watch {
+        margin-top: 8px;
+        padding-left: 8px;
+        border-left: 2px solid var(--accent);
       }
 
       .knob {
@@ -797,10 +852,8 @@
             <details class="preset-more" id="presetMore">
               <summary>details</summary>
               <div class="preset-more-body">
-                <div class="pk-block">what</div>
                 <div class="pv-block" id="presetStory"></div>
-                <div class="pk-block">watch</div>
-                <div class="pv-block" id="presetWatch"></div>
+                <div class="pv-block preset-watch" id="presetWatch"></div>
               </div>
             </details>
           </div>
@@ -1405,6 +1458,7 @@
         // Keep the dropdown in sync even when the preset is applied
         // programmatically (SimAgent.applyPreset).
         $("preset").value = key;
+        if (window.__presetDdRefresh) window.__presetDdRefresh();
         const queueKB = p.queueKB != null ? p.queueKB : 1024;
 
         setKnob("rtt", "rttN", p.rtt);
@@ -1715,6 +1769,75 @@
         updateAppRateHints();
       });
       $("preset").addEventListener("change", () => applyPreset($("preset").value, true));
+
+      /* ---------- custom preset dropdown ----------
+       * The native popup is an OS menu and can't be themed. The hidden
+       * <select id="preset"> stays the source of truth (SimAgent and
+       * applyPreset keep reading/writing it); this builds the styled
+       * button + listbox that users actually interact with.
+       */
+      (function buildPresetDropdown() {
+        const sel = $("preset");
+        const wrap = sel.parentElement; // .preset-select
+        wrap.classList.add("preset-dd");
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "preset-dd-btn";
+        btn.setAttribute("aria-haspopup", "listbox");
+        btn.setAttribute("aria-expanded", "false");
+        const menu = document.createElement("div");
+        menu.className = "preset-dd-menu";
+        menu.setAttribute("role", "listbox");
+        for (const opt of sel.options) {
+          const it = document.createElement("div");
+          it.className = "preset-dd-item";
+          it.setAttribute("role", "option");
+          it.dataset.value = opt.value;
+          it.textContent = opt.textContent;
+          it.addEventListener("click", () => {
+            sel.value = opt.value;
+            sel.dispatchEvent(new Event("change"));
+            setOpen(false);
+          });
+          menu.appendChild(it);
+        }
+        wrap.appendChild(btn);
+        wrap.appendChild(menu);
+        let isOpen = false;
+        function setOpen(v) {
+          isOpen = v;
+          wrap.classList.toggle("open", v);
+          btn.setAttribute("aria-expanded", String(v));
+        }
+        function refresh() {
+          const cur = sel.options[sel.selectedIndex];
+          btn.textContent = cur ? cur.textContent : "";
+          for (const it of menu.children) {
+            it.classList.toggle("active", it.dataset.value === sel.value);
+          }
+        }
+        btn.addEventListener("click", () => setOpen(!isOpen));
+        document.addEventListener("click", (ev) => {
+          if (isOpen && !wrap.contains(ev.target)) setOpen(false);
+        });
+        btn.addEventListener("keydown", (ev) => {
+          const vals = [...sel.options].map((o) => o.value);
+          let i = vals.indexOf(sel.value);
+          if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+            ev.preventDefault();
+            i = clamp(i + (ev.key === "ArrowDown" ? 1 : -1), 0, vals.length - 1);
+            sel.value = vals[i];
+            sel.dispatchEvent(new Event("change"));
+          } else if (ev.key === "Escape") {
+            setOpen(false);
+          }
+        });
+        sel.addEventListener("change", refresh);
+        // applyPreset() sets sel.value directly (no change event) — it calls
+        // this hook so the button label follows SimAgent.applyPreset too.
+        window.__presetDdRefresh = refresh;
+        refresh();
+      })();
 
       /* ---------- controls ----------
        * Buttons drive the shared SimRunner instead of mutating sim.running
@@ -2145,7 +2268,7 @@
       const BAND_BW_MIN_MBPS = 50;
       const BAND_BW_MAX_MBPS = 500;
       const BAND_WARN_COLOR = "#e8c66a";
-      const BAND_INK_FAINT = "#4a5366";
+      const BAND_INK_FAINT = "#7e89a0";
 
       function drawNetwork(x, y, w, h) {
         const isUdp = sim.mode === "udp";
@@ -2233,35 +2356,72 @@
         // ----- Draw the two path segments as separate rectangles. The middle
         // (between preEndX and postStartX) is just the panel background — the
         // queue bucket lives there and is conceptually NOT part of the path. -----
+        // Each leg is drawn as a conduit: a barely-lifted interior with the
+        // visual weight on the top/bottom rails and connector end-caps, plus
+        // faint directional chevrons in each lane — reads as a two-way link
+        // rather than a filled box.
         const drawLeg = (segX, segW) => {
           if (segW <= 0) return;
-          ctx.fillStyle = "#0c0f15";
+          // interior: subtle lift over the canvas bg
+          ctx.fillStyle = "#141823";
           ctx.fillRect(segX, bandY, segW, bandWidth);
           if (isUdp) {
-            ctx.fillStyle = "#080a0e";
+            ctx.fillStyle = "#0e1119";
             ctx.fillRect(segX, bandY + halfBand, segW, bandWidth - halfBand);
           }
-          ctx.strokeStyle = "#232a39";
+          // rails (top + bottom) carry the emphasis
+          ctx.strokeStyle = "#54668f";
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(segX, bandY + 0.75);
+          ctx.lineTo(segX + segW, bandY + 0.75);
+          ctx.moveTo(segX, bandY + bandWidth - 0.75);
+          ctx.lineTo(segX + segW, bandY + bandWidth - 0.75);
+          ctx.stroke();
+          // connector end-caps where the leg meets an endpoint or the router
+          ctx.beginPath();
+          ctx.moveTo(segX + 0.75, bandY);
+          ctx.lineTo(segX + 0.75, bandY + bandWidth);
+          ctx.moveTo(segX + segW - 0.75, bandY);
+          ctx.lineTo(segX + segW - 0.75, bandY + bandWidth);
+          ctx.stroke();
+          // dashed data / ACK lane divider
+          ctx.strokeStyle = "#33405a";
           ctx.lineWidth = 1;
-          ctx.strokeRect(segX + 0.5, bandY + 0.5, segW - 1, bandWidth - 1);
-          // data / ACK divider
-          ctx.strokeStyle = "#252c3c";
+          ctx.setLineDash([4, 5]);
           ctx.beginPath();
           ctx.moveTo(segX, bandY + halfBand + 0.5);
           ctx.lineTo(segX + segW, bandY + halfBand + 0.5);
           ctx.stroke();
+          ctx.setLineDash([]);
+          // sparse directional chevrons: → in the data lane, ← in the ACK lane
+          const chevron = (cx, cy, dir) => {
+            ctx.beginPath();
+            ctx.moveTo(cx - 3 * dir, cy - 3.5);
+            ctx.lineTo(cx + 3 * dir, cy);
+            ctx.lineTo(cx - 3 * dir, cy + 3.5);
+            ctx.stroke();
+          };
+          ctx.strokeStyle = "rgba(110, 168, 255, 0.20)";
+          ctx.lineWidth = 1.5;
+          const dataLaneY = bandY + halfBand / 2;
+          const ackLaneY = bandY + halfBand + halfBand / 2;
+          for (let cx = segX + 24; cx < segX + segW - 12; cx += 56) {
+            chevron(cx, dataLaneY, 1);
+            if (!isUdp) chevron(cx, ackLaneY, -1);
+          }
         };
         drawLeg(bandX, preLegW);
         drawLeg(postStartX, postLegW);
         // Outline color shifts with pressure
-        let qStroke = "#3a4658";
+        let qStroke = "#60749c";
         if (qFrac >= 1.0 - 1e-6) qStroke = "#e87a7a";
         else if (qFrac >= 0.8) qStroke = "#e8c66a";
         // box background (darker than band so the bucket reads as a separate container)
-        ctx.fillStyle = "#070a0f";
+        ctx.fillStyle = "#0a0e16";
         ctx.fillRect(qBucketX, qBucketY, qBucketW, qBucketH);
         ctx.strokeStyle = qStroke;
-        ctx.lineWidth = qFrac >= 0.8 ? 1.5 : 1;
+        ctx.lineWidth = qFrac >= 0.8 ? 2 : 1.5;
         ctx.strokeRect(qBucketX + 0.5, qBucketY + 0.5, qBucketW - 1, qBucketH - 1);
         // cell layout: cols×rows ~ aspect of the box
         const qAspect = qBucketW / qBucketH;
@@ -2394,7 +2554,7 @@
         const postLen = postLegW;
         const maxDots = 4000;
         let drawn = 0;
-        const dotR = 2.5;
+        const dotR = 3;
 
         for (let i = 0; i < sim.inflight.length && drawn < maxDots; i++) {
           const p = sim.inflight[i];
