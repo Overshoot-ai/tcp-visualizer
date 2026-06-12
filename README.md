@@ -59,8 +59,9 @@ then with bbr.
 
 Everything is adjustable live: RTT, MSS, payload size, link bandwidth, router buffer size, random
 loss %, congestion-control algorithm (custom fixed-cwnd / cubic / bbr), initial cwnd, send/receive buffer
-sizes, app read/write rates, and a TCP-handshake toggle (cold connection: SYN/SYN-ACK animate across
-the band and the first data packet leaves one full RTT after start). Hover any knob for an explanation. Everything is
+sizes, app read/write rates, and a handshake toggle — warm (reused connection, data at t=0) vs cold
+(full 3-way handshake: SYN/SYN-ACK animate across the band and the first data packet leaves one full
+RTT after start). Hover any knob for an explanation. Everything is
 glossaried: click any underlined term, any legend item, or any component on the canvas itself
 (body grids, buffer buckets, router queue, network band) to open its definition — and glossary
 entries cross-link the terms they mention.

@@ -124,7 +124,7 @@ All knobs are settable via `SimAgent.configure({...})` or via the sliders in the
 | app write (Mbps) | `appWriteMbps` | 0–10000 | App→wmem write rate. 0 = saturate. |
 | app read (Mbps) | `appReadMbps` | 0–10000 | rmem→app drain rate. 0 = saturate. |
 | Mode | `mode` | tcp \| udp | UDP disables ACKs, retransmits, flow control. |
-| Handshake | `handshake` | true \| false | TCP 3-way handshake before data. When true, the first data segment leaves at exactly t = RTT (SYN out, SYN-ACK back; the final ACK rides with the first data flight). Default false (warm/reused connection). Ignored in UDP mode. |
+| Handshake | `handshake` | true \| false | TCP 3-way handshake before data — shown as cold (true) vs warm (false) in the UI. When true (cold), the first data segment leaves at exactly t = RTT (SYN out, SYN-ACK back; the final ACK rides with the first data flight). Default false (warm/reused connection). Ignored in UDP mode. |
 | CC algo | `ccMode` | custom \| cubic \| bbr | "custom" keeps cwnd at the knob value; "cubic" runs RFC 8312; "bbr" runs Google's 2016 BBR. |
 
 ### Presets

@@ -875,11 +875,11 @@
 
           <!-- Handshake: title and off/on toggle share one row (same pattern
                as the congestion-control row below). -->
-          <div class="section-head tcp-only" title="TCP 3-way handshake (SYN → SYN-ACK → ACK) — when on, the connection is cold: the first data packet leaves one full RTT after Start, because the SYN must reach the receiver (RTT/2) and the SYN-ACK must come back (another RTT/2) before data may flow. The final ACK rides along with the first data flight. Costs exactly +1 RTT on every transfer — painful for short requests on long paths. Off models a warm/reused connection (keep-alive, connection pool).">
+          <div class="section-head tcp-only" title="TCP 3-way handshake (SYN → SYN-ACK → ACK) — cold runs the full handshake: the first data packet leaves one full RTT after Start, because the SYN must reach the receiver (RTT/2) and the SYN-ACK must come back (another RTT/2) before data may flow. The final ACK rides along with the first data flight. Costs exactly +1 RTT on every transfer — painful for short requests on long paths. Warm models a reused connection (keep-alive, connection pool) that sends data at t=0.">
             <h2 class="kw" data-term="handshake">Handshake</h2>
             <div class="mode-toggle tcp-only cc-toggle inline">
-              <button id="btnHsOff" class="active" data-term="handshake">off</button>
-              <button id="btnHsOn" data-term="handshake">on</button>
+              <button id="btnHsWarm" class="active" data-term="handshake">warm</button>
+              <button id="btnHsCold" data-term="handshake">cold</button>
             </div>
           </div>
 
@@ -1066,7 +1066,7 @@
         },
         handshake: {
           title: "TCP 3-way handshake",
-          body: "Before any data flows, TCP establishes the connection: the client sends a SYN, the server answers with a SYN-ACK, and the client confirms with an ACK that rides along with its first data packet. Net cost: exactly one extra RTT before the first byte leaves. That's nothing for a bulk transfer but brutal for short requests on long paths — which is why connection reuse (keep-alive, pools) and warm starts matter so much. With the toggle off, the sim models a warm/reused connection that starts sending at t=0. (TLS would add 1–2 more round trips on top; TCP Fast Open and QUIC exist to claw this RTT back.)",
+          body: "Before any data flows, TCP establishes the connection: the client sends a SYN, the server answers with a SYN-ACK, and the client confirms with an ACK that rides along with its first data packet. Net cost: exactly one extra RTT before the first byte leaves. That's nothing for a bulk transfer but brutal for short requests on long paths — which is why connection reuse (keep-alive, pools) and warm starts matter so much. The toggle's 'cold' runs the full handshake; 'warm' models a reused connection that starts sending at t=0. (TLS would add 1–2 more round trips on top; TCP Fast Open and QUIC exist to claw this RTT back.)",
         },
         syn: {
           title: "SYN / SYN-ACK",
@@ -1897,21 +1897,22 @@
       $("btnModeTcp").addEventListener("click", () => setMode("tcp"));
       $("btnModeUdp").addEventListener("click", () => setMode("udp"));
 
-      /* ---------- handshake toggle (off / on) ---------- */
-      // When on, resetSim() leaves the first RTT to the 3-way handshake:
-      // sim-core gates app writes and data sends until simTime >= RTT, and
-      // drawNetwork() animates the SYN / SYN-ACK across the band.
+      /* ---------- handshake toggle (warm / cold) ---------- */
+      // Cold (sim.handshake = true) leaves the first RTT to the 3-way
+      // handshake: sim-core gates app writes and data sends until
+      // simTime >= RTT, and drawNetwork() animates the SYN / SYN-ACK across
+      // the band. Warm models a reused connection — data flows at t=0.
       function applyHandshakeUi() {
-        $("btnHsOff").classList.toggle("active", !sim.handshake);
-        $("btnHsOn").classList.toggle("active", !!sim.handshake);
+        $("btnHsWarm").classList.toggle("active", !sim.handshake);
+        $("btnHsCold").classList.toggle("active", !!sim.handshake);
       }
       function setHandshake(v) {
         sim.handshake = !!v;
         applyHandshakeUi();
         resetSim();
       }
-      $("btnHsOff").addEventListener("click", () => setHandshake(false));
-      $("btnHsOn").addEventListener("click", () => setHandshake(true));
+      $("btnHsWarm").addEventListener("click", () => setHandshake(false));
+      $("btnHsCold").addEventListener("click", () => setHandshake(true));
 
       /* ---------- cc-mode toggle (custom / cubic) ---------- */
       // "custom" keeps cwnd at the user-set knob value (today's behavior).
