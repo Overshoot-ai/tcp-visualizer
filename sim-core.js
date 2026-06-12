@@ -245,6 +245,12 @@
       // Generic sender pacing (used by all modes; only BBR advances it)
       lastSenderEmitTime: 0,                 // when sender wire clock will next be free
 
+      // Model the TCP 3-way handshake (SYN → SYN-ACK → ACK). When set, the
+      // first data segment leaves exactly one RTT after t=0: SYN reaches the
+      // receiver at RTT/2, SYN-ACK returns at RTT, and the client's ACK rides
+      // along with the first data flight. Off by default; ignored in UDP mode.
+      handshake: false,
+
       // configurable
       rtt: 100,
       cwndSeg: 836,
@@ -332,6 +338,8 @@
     // window; fall back to cubic / RFC 6928 IW10 when unspecified.
     sim.ccMode = p.ccMode || "cubic";
     sim.initialCwndSeg = p.initCwndSeg != null ? p.initCwndSeg : 10;
+    // Presets are calibrated without a handshake unless they say otherwise.
+    sim.handshake = !!p.handshake;
     return p;
   }
 
@@ -405,6 +413,14 @@
   }
 
   /* ---------- core sim helpers ---------- */
+  // Time spent in the 3-way handshake before any data may flow.
+  function handshakeMs(sim) {
+    return sim.mode === "tcp" && sim.handshake ? sim.rtt : 0;
+  }
+  function inHandshake(sim) {
+    return sim.simTime < handshakeMs(sim);
+  }
+
   function advertisedRwndBytes(sim) {
     return Math.max(0, sim.rmemSize - sim.rmemUsed);
   }
@@ -426,6 +442,7 @@
   }
 
   function maybeSendMore(sim) {
+    if (inHandshake(sim)) return;
     if (sim.mode === "udp") {
       while (
         sim.nextSendIdx < sim.segCount &&
@@ -769,8 +786,10 @@
       if (sim.rmemSet[i]) eligibleForDrainCount++;
     sim.simTime += dtSim;
 
-    // Sender app -> wmem
-    const totalPayloadBytes = sim.segCount * sim.mss;
+    // Sender app -> wmem. During the handshake the connection isn't
+    // established yet, so the app can't write into the socket buffer either
+    // (connect() hasn't returned).
+    const totalPayloadBytes = inHandshake(sim) ? 0 : sim.segCount * sim.mss;
     const bytesAlreadyWritten = sim.appNextWriteIdx * sim.mss;
     const bytesRemainingToWrite = Math.max(
       0,
@@ -1119,6 +1138,8 @@
     advertisedRwndSeg,
     effectiveWindowSeg,
     inflightSegCount,
+    handshakeMs,
+    inHandshake,
     // data
     presets,
     CONSTANTS: {

@@ -37,6 +37,7 @@ function parseArgs(argv) {
     initialCwnd: null, // null = use the preset's initCwndSeg
     artifact: false,
     queueKB: null,
+    handshake: false,
   };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
@@ -49,6 +50,7 @@ function parseArgs(argv) {
       case "--interval": out.interval = parseFloat(next); i++; break;
       case "--initial-cwnd": out.initialCwnd = parseInt(next, 10); i++; break;
       case "--queue-kb": out.queueKB = parseInt(next, 10); i++; break;
+      case "--handshake": out.handshake = true; break;
       case "--artifact": out.artifact = true; break;
       case "-h":
       case "--help":
@@ -79,7 +81,7 @@ function printHelp() {
   console.error(
     "Usage: node sim-cli.js [--preset " + Object.keys(presets).join("|") + "] " +
       "[--cc custom|cubic|bbr] [--mode tcp|udp] [--seconds N] " +
-      "[--interval ms] [--initial-cwnd N] [--queue-kb N] [--artifact]"
+      "[--interval ms] [--initial-cwnd N] [--queue-kb N] [--handshake] [--artifact]"
   );
 }
 
@@ -99,6 +101,7 @@ function main() {
   if (args.queueKB != null) {
     sim.queueSizeBytes = args.queueKB * 1024;
   }
+  if (args.handshake) sim.handshake = true;
   resetSimState(sim);
 
   // Hand off to the shared runner.

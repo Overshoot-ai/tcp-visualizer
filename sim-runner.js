@@ -107,6 +107,7 @@
         finished: sim.finished,
         firstLossSeen: false,
         hystartExitSeen: false,
+        handshakeDoneSeen: false,
         bbrState: sim.bbr_state,
       };
     }
@@ -202,6 +203,16 @@
 
     // Detect transitions across a stepBy call.
     function detectEvents(prev) {
+      // handshake_done: the 3-way handshake completed and data may now flow.
+      if (
+        !snap.handshakeDoneSeen &&
+        sim.mode === "tcp" &&
+        sim.handshake &&
+        sim.simTime >= SimCore.handshakeMs(sim)
+      ) {
+        pushEvent("handshake_done", { rtt_ms: sim.rtt });
+        snap.handshakeDoneSeen = true;
+      }
       // first_loss: queueDrops increased from 0 OR retransmits increased from 0.
       if (!prev.firstLossSeen && !snap.firstLossSeen) {
         if (sim.queueDrops > prev.queueDrops || sim.retransmits > prev.retransmits) {
@@ -430,6 +441,8 @@
         finished: !!sim.finished,
         running: !!sim.running,
         mode: sim.mode,
+        handshake: !!sim.handshake,
+        in_handshake: SimCore.inHandshake(sim),
         cc_mode: sim.ccMode,
         cc_phase: sim.ccPhase,
         in_recovery: !!sim.inRecovery,
@@ -471,6 +484,7 @@
     function getConfig() {
       return {
         mode: sim.mode,
+        handshake: !!sim.handshake,
         cc_mode: sim.ccMode,
         preset: lastAppliedPreset,
         rtt_ms: sim.rtt,
@@ -506,6 +520,7 @@
     function applyConfigToSim(cfg) {
       if (!cfg) return;
       if (cfg.mode) sim.mode = cfg.mode;
+      if (cfg.handshake != null) sim.handshake = !!cfg.handshake;
       if (cfg.cc_mode) sim.ccMode = cfg.cc_mode;
       if (cfg.rtt_ms != null) sim.rtt = cfg.rtt_ms;
       if (cfg.mss_B != null) sim.mss = cfg.mss_B;

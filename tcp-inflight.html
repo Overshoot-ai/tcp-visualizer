@@ -873,6 +873,16 @@
             <button id="btnModeUdp" data-term="mode">UDP</button>
           </div>
 
+          <!-- Handshake: title and off/on toggle share one row (same pattern
+               as the congestion-control row below). -->
+          <div class="section-head tcp-only" title="TCP 3-way handshake (SYN → SYN-ACK → ACK) — when on, the connection is cold: the first data packet leaves one full RTT after Start, because the SYN must reach the receiver (RTT/2) and the SYN-ACK must come back (another RTT/2) before data may flow. The final ACK rides along with the first data flight. Costs exactly +1 RTT on every transfer — painful for short requests on long paths. Off models a warm/reused connection (keep-alive, connection pool).">
+            <h2 class="kw" data-term="handshake">Handshake</h2>
+            <div class="mode-toggle tcp-only cc-toggle inline">
+              <button id="btnHsOff" class="active" data-term="handshake">off</button>
+              <button id="btnHsOn" data-term="handshake">on</button>
+            </div>
+          </div>
+
           <div class="knob" title="RTT (round-trip time) — Time for a packet plus its ACK to traverse the network. Each packet takes RTT/2 across the band; its ACK takes another RTT/2 back. For a fixed cwnd, doubling RTT halves single-flow goodput (goodput ≈ cwnd_bytes / RTT). Try ~20 ms for in-region, ~100 ms for cross-region, ~250 ms for trans-Pacific.">
             <label for="rtt" class="kw" data-term="rtt">RTT (ms)</label>
             <input id="rtt" type="range" min="1" max="1000" step="1" value="100" />
@@ -1053,6 +1063,14 @@
         loss: {
           title: "Background loss (%)",
           body: "Random non-congestion drop probability (bit errors, transient routing glitches, software bugs). Independent of cwnd or queue state. In real networks this is much smaller than queue-overflow loss. Use this to see how cubic handles drops that aren't congestion signals — they trigger the same recovery even though the network isn't congested.",
+        },
+        handshake: {
+          title: "TCP 3-way handshake",
+          body: "Before any data flows, TCP establishes the connection: the client sends a SYN, the server answers with a SYN-ACK, and the client confirms with an ACK that rides along with its first data packet. Net cost: exactly one extra RTT before the first byte leaves. That's nothing for a bulk transfer but brutal for short requests on long paths — which is why connection reuse (keep-alive, pools) and warm starts matter so much. With the toggle off, the sim models a warm/reused connection that starts sending at t=0. (TLS would add 1–2 more round trips on top; TCP Fast Open and QUIC exist to claw this RTT back.)",
+        },
+        syn: {
+          title: "SYN / SYN-ACK",
+          body: "The first two packets of the TCP handshake. SYN ('synchronize') is the client's connection request carrying its initial sequence number; SYN-ACK is the server's combined answer (its own SYN plus an ACK of the client's). They carry no payload data, and the options negotiated on them (MSS, window scaling, SACK) shape everything that follows.",
         },
         "background-loss": {
           title: "Background loss (%)",
@@ -1275,6 +1293,11 @@
         "dup-ack": "dup-acks",
         "acks": "ack",
         "ack": "ack",
+        "3-way handshake": "handshake",
+        "three-way handshake": "handshake",
+        "handshake": "handshake",
+        "syn-ack": "syn",
+        "syn": "syn",
         "hystart": "hystart",
         "slow-start": "slow-start",
         "slow start": "slow-start",
@@ -1483,6 +1506,8 @@
         $("initCwndN").value = sim.initialCwndSeg;
         $("initCwnd").value = cwndSegToSlider(sim.initialCwndSeg);
         applyCcModeUi();
+        // applyPresetToSim also reset sim.handshake; mirror the toggle.
+        applyHandshakeUi();
         updateAppRateHints();
 
         $("presetSub").textContent = p.name;
@@ -1871,6 +1896,22 @@
       }
       $("btnModeTcp").addEventListener("click", () => setMode("tcp"));
       $("btnModeUdp").addEventListener("click", () => setMode("udp"));
+
+      /* ---------- handshake toggle (off / on) ---------- */
+      // When on, resetSim() leaves the first RTT to the 3-way handshake:
+      // sim-core gates app writes and data sends until simTime >= RTT, and
+      // drawNetwork() animates the SYN / SYN-ACK across the band.
+      function applyHandshakeUi() {
+        $("btnHsOff").classList.toggle("active", !sim.handshake);
+        $("btnHsOn").classList.toggle("active", !!sim.handshake);
+      }
+      function setHandshake(v) {
+        sim.handshake = !!v;
+        applyHandshakeUi();
+        resetSim();
+      }
+      $("btnHsOff").addEventListener("click", () => setHandshake(false));
+      $("btnHsOn").addEventListener("click", () => setHandshake(true));
 
       /* ---------- cc-mode toggle (custom / cubic) ---------- */
       // "custom" keeps cwnd at the user-set knob value (today's behavior).
@@ -2556,6 +2597,47 @@
         let drawn = 0;
         const dotR = 3;
 
+        // 3-way handshake animation: during the first RTT (handshake knob on)
+        // a lone SYN crosses the data lane L→R over [0, RTT/2], then the
+        // SYN-ACK returns in the ACK lane R→L over [RTT/2, RTT]. Control
+        // packets skip the queue (one tiny segment never queues meaningfully)
+        // — same two-leg path the ACK dots use. The client's final ACK isn't
+        // drawn: it rides along with the first data flight.
+        if (!isUdp && sim.handshake && sim.simTime < sim.rtt) {
+          const hsColor = "#c792ea";
+          const drawHsDot = (px, py, label) => {
+            ctx.fillStyle = hsColor;
+            ctx.beginPath();
+            ctx.arc(px, py, dotR + 1, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = "rgba(199,146,234,0.45)";
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(px, py, dotR + 3.5, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.fillStyle = hsColor;
+            ctx.font = "9px " + getComputedStyle(document.body).getPropertyValue("--mono");
+            ctx.textAlign = px > bandX + bandLength - 50 ? "right" : "left";
+            ctx.fillText(label, px + (ctx.textAlign === "left" ? 7 : -7), py - 6);
+            ctx.textAlign = "left";
+          };
+          if (sim.simTime < halfRtt) {
+            // SYN: sender → receiver, top (data) lane, centered.
+            const t = halfRtt > 0 ? sim.simTime / halfRtt : 1;
+            let px;
+            if (t < 0.5) px = bandX + (t / 0.5) * preLen;
+            else px = qRightX + ((t - 0.5) / 0.5) * postLen;
+            drawHsDot(px, bandY + 0.5 * halfBand, "SYN");
+          } else {
+            // SYN-ACK: receiver → sender, bottom (ACK) lane.
+            const t = halfRtt > 0 ? (sim.simTime - halfRtt) / halfRtt : 1;
+            let px;
+            if (t < 0.5) px = qRightX + postLen - (t / 0.5) * postLen;
+            else px = preEndX - ((t - 0.5) / 0.5) * preLen;
+            drawHsDot(px, bandY + halfBand + 0.5 * halfBand, "SYN-ACK");
+          }
+        }
+
         for (let i = 0; i < sim.inflight.length && drawn < maxDots; i++) {
           const p = sim.inflight[i];
           if (p.done) continue;
@@ -2829,9 +2911,11 @@
           $("speed").value = speedToSlider(s);
         },
         applyCcModeUi,
+        applyHandshakeUi,
         applyPreset,
         setMode,
         setCcMode,
+        setHandshake,
         recompute,
         resetSim,
         draw,

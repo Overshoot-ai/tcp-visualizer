@@ -124,6 +124,7 @@ All knobs are settable via `SimAgent.configure({...})` or via the sliders in the
 | app write (Mbps) | `appWriteMbps` | 0–10000 | App→wmem write rate. 0 = saturate. |
 | app read (Mbps) | `appReadMbps` | 0–10000 | rmem→app drain rate. 0 = saturate. |
 | Mode | `mode` | tcp \| udp | UDP disables ACKs, retransmits, flow control. |
+| Handshake | `handshake` | true \| false | TCP 3-way handshake before data. When true, the first data segment leaves at exactly t = RTT (SYN out, SYN-ACK back; the final ACK rides with the first data flight). Default false (warm/reused connection). Ignored in UDP mode. |
 | CC algo | `ccMode` | custom \| cubic \| bbr | "custom" keeps cwnd at the knob value; "cubic" runs RFC 8312; "bbr" runs Google's 2016 BBR. |
 
 ### Presets
@@ -217,6 +218,7 @@ SimAgent.version                             // "1.0"
 
 Emitted at most once per transition:
 
+- `handshake_done`: the 3-way handshake completed and data may flow (only with `handshake: true`; fires at t ≈ RTT)
 - `first_loss`: first time the simulation experiences any loss (queue or background)
 - `hystart_exit`: cwnd crossed BDP and slow-start switched to cong-avoid
 - `recovery_enter` / `recovery_exit`: fast-recovery boundaries

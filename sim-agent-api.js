@@ -90,6 +90,10 @@
       if (ui().setMode) ui().setMode(v);
       else _sim.mode = v === "udp" ? "udp" : "tcp";
     },
+    handshake: (v) => {
+      _sim.handshake = !!v;
+      ui().applyHandshakeUi && ui().applyHandshakeUi();
+    },
   };
 
   /* ---------- API ---------- */
@@ -285,6 +289,7 @@
       if (cfg) {
         const params = {
           mode: cfg.mode,
+          handshake: cfg.handshake,
           ccMode: cfg.cc_mode,
           rtt: cfg.rtt_ms,
           mss: cfg.mss_B,
