@@ -5,9 +5,11 @@
 > programmable JavaScript API (`window.SimAgent`) so agents can configure runs, read structured results, and watch the
 > same animation a human would see.
 
-The deployed root (`index.html`) is a thin iframe wrapper. The actual page (with `window.SimAgent`) is
-`tcp-inflight.html` and loads inside the iframe. Agents driving the deployed root should target the iframe's
-`contentWindow`; agents loading `tcp-inflight.html` directly get `window.SimAgent` on the top window.
+Production is deployed at `https://tcp.overshoot.ai`. On Vercel, `/` is rewritten directly to
+`tcp-inflight.html`, so `window.SimAgent` is on the top window. In local static serving, `index.html`
+is a thin iframe wrapper that loads `tcp-inflight.html`; agents driving the local root should target
+the iframe's `contentWindow`. Agents loading `tcp-inflight.html` directly always get
+`window.SimAgent` on the top window.
 
 ---
 
@@ -19,9 +21,9 @@ uploads, HTTP requests, video streaming control planes, etc. It's reliable (retr
 control algorithm* — has huge implications for real-world throughput, latency, and how a single connection behaves on
 shared infrastructure.
 
-This site simulates a single TCP transfer (one client → one server, sending e.g. a 10 MB body) over a network with a
-configurable bottleneck. You can watch every byte of the request leave the sender, traverse the network, queue at the
-bottleneck, and arrive at the receiver. The simulator models **TCP Cubic** (the default congestion control in Linux
+This site simulates a single TCP transfer (one client → one server; the blog presets send a 5 MB body) over a network
+with a configurable bottleneck. You can watch every byte of the request leave the sender, traverse the network, queue
+at the bottleneck, and arrive at the receiver. The simulator models **TCP Cubic** (the default congestion control in Linux
 since ~2008), with slow-start, Hystart, fast retransmit, fast recovery, and RTO, plus **TCP BBR** (Google's 2016
 model-based controller). It also models **bottleneck queue dynamics** — packets fill the queue, queue overflow causes
 drops, drops trigger retransmits — and **flow control** via finite kernel buffers.
@@ -61,10 +63,18 @@ the agent API makes it possible to run experiments programmatically.
 - Knobs (sliders): RTT, cwnd, MSS, payload, sim speed, router read/write rates, router buffer, loss %, and the congestion-control
   options.
 - Collapsible "Buffers" section: router read/write rates, send buffer (wmem), app write rate, receive buffer (rmem), app read rate.
-- Start / Pause / Reset controls.
+- Start / Pause / Restart controls.
 - Glossary: clickable terms (RTT, BDP, cwnd, Hystart, fast retransmit, etc.) with definitions. The canvas components
   themselves are also click targets (body grids, wmem/rmem buckets, router queue bucket, network band), as are legend
   items, and glossary/preset prose cross-links every known term it mentions.
+
+**Mobile layout**:
+
+- Portrait phones show a rotate-to-landscape prompt.
+- Landscape phones prioritize the visualization: dense HUD stats are hidden, the headline keeps request time,
+  bottleneck, and completion visible, and compact Start/Pause/Restart controls sit in the middle of the canvas.
+- The sidebar knobs and legend are hidden by default on mobile landscape. `Knobs` and `Legend` buttons open them as
+  overlays; opening one closes the other.
 
 ## Key TCP concepts you'll see in action
 
@@ -146,6 +156,10 @@ mode and initial cwnd. Apply via `SimAgent.applyPreset(name)`:
 Preset links are supported with query params:
 
 ```text
+https://tcp.overshoot.ai/?preset=cold-iw10
+https://tcp.overshoot.ai/?preset=warm-iw10
+https://tcp.overshoot.ai/?preset=warm-iw3500-rwnd-warm
+
 tcp-inflight.html?preset=cold-iw10
 tcp-inflight.html?preset=warm-iw10
 tcp-inflight.html?preset=warm-iw3500-rwnd-warm&autoplay=1
@@ -355,13 +369,14 @@ emitted in BBR mode.
 
 ## Source
 
-The architecture, in five files:
+The main source files:
 
 - `sim-core.js` — pure simulation model (sim state factory, step function, presets). No DOM. Usable in Node or browser.
 - `sim-runner.js` — shared runner. Owns the RAF loop (browser) and the tight deterministic loop (Node). Captures 10 Hz
   samples and discrete events.
 - `sim-agent-api.js` — exposes `window.SimAgent`.
 - `tcp-inflight.html` — the page. Visualization, controls, hooks into the runner.
+- `index.html` — local-root iframe wrapper; production `/` is rewritten directly to `tcp-inflight.html`.
 - `sim-cli.js` — CLI usage (`node sim-cli.js --preset cold-iw10`).
 
 Plus `examples/agent-driver.js`, a Puppeteer script that drives the page end to end.

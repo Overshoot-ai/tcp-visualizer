@@ -5,6 +5,8 @@ of a request leave the sender, traverse the network, queue at the bottleneck rou
 the receiver — with the congestion window, kernel buffers, ACK clock, and loss recovery all animated
 in real time.
 
+Live site: https://tcp.overshoot.ai
+
 ![screenshot](assets/screenshot.png)
 
 ## Why
@@ -37,6 +39,10 @@ open http://localhost:8080/tcp-inflight.html
 
 Pick a preset, hit **Start**, and adjust the sim speed slider to taste (default is 50× slow-motion
 so you can watch individual packets).
+
+On phones, rotate to landscape. The mobile layout keeps the visualization prominent, shows compact
+Start/Pause/Restart controls in the middle of the canvas, and hides the advanced knobs and legend
+behind overlays.
 
 ## Scenario presets
 
@@ -76,6 +82,10 @@ SimAgent.getSummary();   // { elapsed_sim_ms, goodput_Mbps, retransmits_total, .
 You can also link directly to a preset:
 
 ```text
+https://tcp.overshoot.ai/?preset=cold-iw10
+https://tcp.overshoot.ai/?preset=warm-iw10
+https://tcp.overshoot.ai/?preset=warm-iw3500-rwnd-warm
+
 http://localhost:8080/tcp-inflight.html?preset=cold-iw10
 http://localhost:8080/tcp-inflight.html?preset=warm-iw10
 http://localhost:8080/tcp-inflight.html?preset=warm-iw3500-rwnd-warm
@@ -103,12 +113,13 @@ node sim-cli.js --help
 | `sim-runner.js` | Shared runner — RAF loop (browser) or tight loop (Node); captures 10 Hz samples and events. |
 | `sim-agent-api.js` | Exposes `window.SimAgent`. |
 | `tcp-inflight.html` | The page: canvas visualization, knobs, glossary. |
+| `index.html` | Thin iframe wrapper for local root loads; Vercel rewrites `/` directly to the visualizer. |
 | `sim-cli.js` | Node CLI entry point. |
 
 ## Deploying
 
 The repo is a static site. On Vercel, no configuration is needed beyond the included `vercel.json`
-(routes `/` to the visualizer).
+(routes `/` to the visualizer). The current production deployment is `https://tcp.overshoot.ai`.
 
 ## Fidelity notes
 
