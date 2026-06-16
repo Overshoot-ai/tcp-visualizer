@@ -7,17 +7,19 @@
  * dynamics without opening a browser.
  *
  * Usage:
- *   node sim-cli.js --preset healthy --seconds 5
- *   node sim-cli.js --preset lossy --cc bbr --seconds 8
- *   node sim-cli.js --preset congestion --seconds 8 --artifact
+ *   node sim-cli.js --preset cold-iw10 --seconds 5
+ *   node sim-cli.js --preset warm-iw10 --seconds 5
+ *   node sim-cli.js --preset warm-iw3500-rwnd-warm --seconds 5 --artifact
  *
  * Flags:
- *   --preset <name>               (default healthy; see sim-core.js presets)
+ *   --preset <name>               (default cold-iw10; see sim-core.js presets)
  *   --cc <custom|cubic|bbr>       (default: the preset's ccMode)
  *   --mode <tcp|udp>              (default tcp)
  *   --seconds <n>                 (default 5)
  *   --interval <ms>               (default 100; sample period in sim ms)
  *   --initial-cwnd <n>            (default: the preset's initCwndSeg)
+ *   --router-read-mbps <n>        (default: the preset's routerReadMbps)
+ *   --router-write-mbps <n>       (default: the preset's routerWriteMbps)
  *   --artifact                    (also dump the JSON artifact to stderr)
  */
 "use strict";
@@ -29,12 +31,14 @@ const { createSim, resetSimState, applyPresetToSim, presets } = SC;
 /* ---------- arg parsing (Node stdlib only) ---------- */
 function parseArgs(argv) {
   const out = {
-    preset: "healthy",
+    preset: "cold-iw10",
     cc: null, // null = use the preset's ccMode
     mode: "tcp",
     seconds: 5,
     interval: 100,
     initialCwnd: null, // null = use the preset's initCwndSeg
+    routerReadMbps: null,
+    routerWriteMbps: null,
     artifact: false,
     queueKB: null,
     handshake: false,
@@ -49,6 +53,8 @@ function parseArgs(argv) {
       case "--seconds": out.seconds = parseFloat(next); i++; break;
       case "--interval": out.interval = parseFloat(next); i++; break;
       case "--initial-cwnd": out.initialCwnd = parseInt(next, 10); i++; break;
+      case "--router-read-mbps": out.routerReadMbps = parseFloat(next); i++; break;
+      case "--router-write-mbps": out.routerWriteMbps = parseFloat(next); i++; break;
       case "--queue-kb": out.queueKB = parseInt(next, 10); i++; break;
       case "--handshake": out.handshake = true; break;
       case "--artifact": out.artifact = true; break;
@@ -81,7 +87,7 @@ function printHelp() {
   console.error(
     "Usage: node sim-cli.js [--preset " + Object.keys(presets).join("|") + "] " +
       "[--cc custom|cubic|bbr] [--mode tcp|udp] [--seconds N] " +
-      "[--interval ms] [--initial-cwnd N] [--queue-kb N] [--handshake] [--artifact]"
+      "[--interval ms] [--initial-cwnd N] [--router-read-mbps N] [--router-write-mbps N] [--queue-kb N] [--handshake] [--artifact]"
   );
 }
 
@@ -98,6 +104,8 @@ function main() {
   sim.mode = args.mode;
   if (args.cc != null) sim.ccMode = args.cc;
   if (args.initialCwnd != null) sim.initialCwndSeg = args.initialCwnd;
+  if (args.routerReadMbps != null) sim.routerReadMbps = args.routerReadMbps;
+  if (args.routerWriteMbps != null) sim.routerWriteMbps = args.routerWriteMbps;
   if (args.queueKB != null) {
     sim.queueSizeBytes = args.queueKB * 1024;
   }
@@ -168,9 +176,12 @@ function main() {
   console.log("# preset=" + args.preset + " cc=" + sim.ccMode + " mode=" + args.mode);
   console.log(
     "# rtt_ms=" + cfg.rtt_ms +
-      " mss_B=" + cfg.mss_B +
-      " linkBw_Mbps=" + cfg.link_bw_mbps +
-      " queue_KB=" + Math.round(cfg.queue_KB)
+    " mss_B=" + cfg.mss_B +
+    " router_read_Mbps=" + cfg.router_read_mbps +
+    " router_write_Mbps=" + cfg.router_write_mbps +
+    " linkBw_Mbps=" + cfg.link_bw_mbps +
+    " effective_drain_Mbps=" + cfg.effective_drain_mbps +
+    " queue_KB=" + Math.round(cfg.queue_KB)
   );
   console.log("# avg_goodput_Mbps=" + sm.goodput_Mbps.toFixed(3));
   console.log(

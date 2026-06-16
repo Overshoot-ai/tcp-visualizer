@@ -58,9 +58,9 @@ the agent API makes it possible to run experiments programmatically.
 **Sidebar** (right of canvas):
 
 - Preset selector + scenario card (story, what to watch, expected outcome)
-- Knobs (sliders): RTT, cwnd, MSS, payload, sim speed, link bw, router buffer, loss %, and the congestion-control
+- Knobs (sliders): RTT, cwnd, MSS, payload, sim speed, router read/write rates, router buffer, loss %, and the congestion-control
   options.
-- Collapsible "Buffers" section: send buffer (wmem), app write rate, receive buffer (rmem), app read rate.
+- Collapsible "Buffers" section: router read/write rates, send buffer (wmem), app write rate, receive buffer (rmem), app read rate.
 - Start / Pause / Reset controls.
 - Glossary: clickable terms (RTT, BDP, cwnd, Hystart, fast retransmit, etc.) with definitions. The canvas components
   themselves are also click targets (body grids, wmem/rmem buckets, router queue bucket, network band), as are legend
@@ -97,8 +97,11 @@ Anchored to what each one looks like on screen:
   the initial value.
 - **RTO** (retransmission timeout): the catastrophic loss path. Cwnd resets to the initial value (e.g., 10) and
   slow-start restarts. Reserved for serious problems.
-- **Router buffer (bottleneck queue)**: the buffer at the path's slowest link. Packets queue here when arrival rate >
-  drain rate. If it fills, packets drop. Knob: `Router (KB)`.
+- **Router read / write**: router read is the ingress rate into the bottleneck queue; router write is the router's
+  egress capacity. The actual queue drain is `min(linkBwMbps, routerWriteMbps)`. Queue builds when router read exceeds
+  that effective drain.
+- **Router buffer (bottleneck queue)**: the buffer at the path's slowest link. Packets queue here when router read >
+  effective drain. If it fills, packets drop. Knob: `Router (KB)`.
 - **send / receive buffers (wmem / rmem)**: the sender's and receiver's kernel TCP buffers. wmem holds bytes from the app's write call until
   ACKed (kernel needs them in case of retransmit). rmem holds arrived bytes until the receiver app reads them. The
   receiver advertises `rwnd = rmem − rmem_used` to the sender; sender's effective window is `min(cwnd, rwnd)`. Knobs in
@@ -116,31 +119,48 @@ All knobs are settable via `SimAgent.configure({...})` or via the sliders in the
 | Packet size (MSS) | `mss` | 500–9000 | Max data bytes per packet. |
 | Payload (MB) | `payloadMb` | 0.1–500 | Total request size. |
 | Sim speed | `simSpeed` | 0–1 | Wall-clock to sim-clock ratio (log scale). 0.02 = 50× slow-mo for watching. |
-| Link bw (Mbps) | `linkBwMbps` | 1–100000 | Bottleneck rate the flow sees. |
-| Router (KB) | `queueKB` | 4–65536 | Bottleneck buffer size (log-scale slider). |
+| Link bw (Mbps) | `linkBwMbps` | 1–100000 | Path capacity available to this flow. Default 1000 Mbps in blog presets. |
+| router read (Mbps) | `routerReadMbps` | 1–100000 | Ingress rate into the bottleneck router queue. Default 10000 Mbps in blog presets. |
+| router write (Mbps) | `routerWriteMbps` | 1–100000 | Egress capacity out of the router queue. Effective drain is `min(linkBwMbps, routerWriteMbps)`. Default 1000 Mbps in blog presets. |
+| Router (KB) | `queueKB` | 4–16384 | Bottleneck buffer size (log-scale slider). |
 | Loss (%) | `lossPct` | 0–20 | Background per-packet random loss (independent of queue overflow). |
 | send buf (KB) | `wmemKB` | 4–32768 | Sender kernel send buffer (wmem). |
 | recv buf (KB) | `rmemKB` | 4–32768 | Receiver kernel recv buffer (rmem). |
-| app write (Mbps) | `appWriteMbps` | 0–10000 | App→wmem write rate. 0 = saturate. |
-| app read (Mbps) | `appReadMbps` | 0–10000 | rmem→app drain rate. 0 = saturate. |
+| app write (Mbps) | `appWriteMbps` | 0–10000 | App→wmem write rate. 0 = writes nothing. |
+| app read (Mbps) | `appReadMbps` | 0–10000 | rmem→app drain rate. 0 = reads nothing. |
 | Mode | `mode` | tcp \| udp | UDP disables ACKs, retransmits, flow control. |
 | Handshake | `handshake` | true \| false | TCP 3-way handshake before data — shown as cold (true) vs warm (false) in the UI. When true (cold), the first data segment leaves at exactly t = RTT (SYN out, SYN-ACK back; the final ACK rides with the first data flight). Default false (warm/reused connection). Ignored in UDP mode. |
 | CC algo | `ccMode` | custom \| cubic \| bbr | "custom" keeps cwnd at the knob value; "cubic" runs RFC 8312; "bbr" runs Google's 2016 BBR. |
 
 ### Presets
 
-Seven scenario presets, each a self-contained lesson. A preset sets every model knob plus the congestion-control mode
-and initial cwnd. Apply via `SimAgent.applyPreset(name)`:
+Three scenario presets, matching the blog/video progression. A preset sets every model knob plus the congestion-control
+mode and initial cwnd. Apply via `SimAgent.applyPreset(name)`:
 
 | Preset key | Scenario | The lesson |
 |---|---|---|
-| `healthy` | 40 ms RTT, 200 Mbps, ample buffer | Clean slow-start → Hystart → saturated link. 10 MB in ~0.7 s. |
-| `cwnd-buildup` | 150 ms RTT, 300 Mbps (big BDP), IW 10 | Cold connections spend the transfer ramping cwnd. 20 MB in ~2 s. |
-| `warm-start` | Same path, IW = BDP (~3852 pkts) | The ramp disappears: same 20 MB in ~0.8 s. |
-| `congestion` | 60 ms RTT, 150 Mbps, 96 KB router buffer | Shallow-buffer overflow: drops, sawtooth, ~5 Mbps crawl. |
-| `bufferbloat` | 30 ms RTT, 50 Mbps, 4 MB buffer, fixed cwnd 2000 | Standing queue ~450 ms dwell; nothing drops, nothing slows down. |
-| `lossy` | 50 ms RTT, 100 Mbps, 2% random loss | Cubic usually crawls at ~1 Mbps (high run-to-run variance); `bbr` → ~25 Mbps consistently. |
-| `slow-receiver` | 200 Mbps link, app reads at 40 Mbps, 256 KB recv buffer | rwnd collapse + zero-window stalls; flow control sets the pace. |
+| `cold-iw10` | Cold TCP, IW10 | Fresh TCP connection, default 10-packet initial window. 5 MB in ~353 ms in the sim. |
+| `warm-iw10` | Warm TCP, IW10 | Reused TCP connection, default 10-packet initial window. 5 MB in ~326 ms in the sim. |
+| `warm-iw3500-rwnd-warm` | Warm TCP, IW3500 + rwnd warm | Reused connection, aggressive initial window, receive window opened by a prior large upload. 5 MB in ~78 ms in the sim. |
+
+Preset links are supported with query params:
+
+```text
+tcp-inflight.html?preset=cold-iw10
+tcp-inflight.html?preset=warm-iw10
+tcp-inflight.html?preset=warm-iw3500-rwnd-warm&autoplay=1
+```
+
+Supported startup params:
+
+| Param | Values | Effect |
+|---|---|---|
+| `preset` or `p` | preset key | Loads that preset; unknown keys fall back to `cold-iw10`. |
+| `cc` or `ccMode` | `custom` \| `cubic` \| `bbr` | Overrides the preset congestion-control mode. |
+| `mode` | `tcp` \| `udp` | Overrides transport mode. |
+| `handshake` | `cold`/`warm`, `true`/`false`, `1`/`0` | Sets TCP handshake visualization. |
+| `speed` or `simSpeed` | 0–1 | Sets visual playback speed. |
+| `autoplay` or `start` | `1`, `true`, `yes`, `on` | Starts the visual simulation on load. |
 
 ## Agent API: `window.SimAgent`
 
@@ -206,7 +226,10 @@ SimAgent.version                             // "1.0"
   goodput_KBms: 14.8,
   goodput_Mbps: 121,
   rtt_ms: 60,                      // knob at moment of sample
+  router_read_mbps: 10000,
+  router_write_mbps: 1000,
   link_bw_mbps: 230,
+  effective_drain_mbps: 230,
   mss_B: 1398,
   wmem_used_bytes: 1024576,
   rmem_used_bytes: 81084,
@@ -262,10 +285,10 @@ Emitted at most once per transition:
 ### Run a scenario deterministically
 
 ```js
-SimAgent.applyPreset("healthy");
+SimAgent.applyPreset("cold-iw10");
 await SimAgent.runToCompletion({ visual: false });
 SimAgent.getSummary();
-// → { completed: true, elapsed_sim_ms: 725, goodput_Mbps: 115.7, ... }
+// → { completed: true, elapsed_sim_ms: 353, goodput_Mbps: ..., ... }
 ```
 
 ### Sweep a knob, watch each run
@@ -273,7 +296,7 @@ SimAgent.getSummary();
 ```js
 const results = [];
 for (const queueKB of [50, 200, 500, 1500, 4500]) {
-  SimAgent.applyPreset("congestion");
+  SimAgent.applyPreset("warm-iw3500-rwnd-warm");
   SimAgent.configure({ queueKB, simSpeed: 0.3 });
   await SimAgent.runToCompletion({ visual: true });
   results.push({ queueKB, ...SimAgent.getSummary() });
@@ -283,21 +306,20 @@ for (const queueKB of [50, 200, 500, 1500, 4500]) {
 ### Stop on first loss
 
 ```js
-SimAgent.applyPreset("congestion");
+SimAgent.applyPreset("warm-iw3500-rwnd-warm");
 await SimAgent.runUntil(s => s.q_drops_cumulative > 0 || s.retransmits_cumulative > 0);
 SimAgent.getState();
 // → state at first loss
 ```
 
-### Compare cubic to BBR on a lossy link
+### Compare the blog presets
 
 ```js
 const traces = {};
-for (const cc of ["cubic", "bbr"]) {
-  SimAgent.applyPreset("lossy");
-  SimAgent.setCcMode(cc);
+for (const preset of ["cold-iw10", "warm-iw10", "warm-iw3500-rwnd-warm"]) {
+  SimAgent.applyPreset(preset);
   await SimAgent.runToCompletion({ visual: false });
-  traces[cc] = SimAgent.getArtifact();
+  traces[preset] = SimAgent.getArtifact();
 }
 ```
 
@@ -313,10 +335,11 @@ The agent API lives in the page's JavaScript context. To reach it from external 
 
 ## Fidelity notes
 
-This is a teaching model, not a packet-accurate emulator. `link_bw` represents the *effective bottleneck rate this
-flow sees* (its share of capacity after contention), not the nominal wire bandwidth. Cubic sends are ACK-clocked but
-unpaced — a cwnd-worth of segments can hit the queue at line rate, which makes shallow-buffer scenarios harsher than
-reality. Hystart exits slow-start at exactly BDP and switches to linear AIMD growth until the first loss anchors the
+This is a teaching model, not a packet-accurate emulator. `link_bw` represents path capacity, router write represents
+router egress capacity, and the queue drains at `min(link_bw, router_write)`. Router read controls how fast bursts enter
+that bottleneck queue. Cubic sends are ACK-clocked but unpaced — a cwnd-worth of segments can hit the queue up to the
+router-read rate, which makes shallow-buffer scenarios harsher than a fully paced sender. Hystart exits
+slow-start at exactly BDP and switches to linear AIMD growth until the first loss anchors the
 cubic curve. The RTO model is simplified (fires one RTT after send; no exponential backoff). BBR repairs losses
 quickly (SACK-style: an unACKed segment with 3 ACKed segments above it is retransmitted immediately, plus dup-ACK
 fast retransmit) but ignores them for rate control, as BBRv1 largely did — its window/pacing come from the
@@ -339,6 +362,6 @@ The architecture, in five files:
   samples and discrete events.
 - `sim-agent-api.js` — exposes `window.SimAgent`.
 - `tcp-inflight.html` — the page. Visualization, controls, hooks into the runner.
-- `sim-cli.js` — CLI usage (`node sim-cli.js --preset healthy`).
+- `sim-cli.js` — CLI usage (`node sim-cli.js --preset cold-iw10`).
 
 Plus `examples/agent-driver.js`, a Puppeteer script that drives the page end to end.

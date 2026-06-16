@@ -17,6 +17,9 @@
     </style>
   </head>
   <body>
-    <iframe src="/tcp-inflight" title="TCP in-flight visualizer"></iframe>
+    <iframe id="visualizer" title="TCP in-flight visualizer"></iframe>
+    <script>
+      document.getElementById("visualizer").src = "/tcp-inflight.html" + window.location.search + window.location.hash;
+    </script>
   </body>
 </html>

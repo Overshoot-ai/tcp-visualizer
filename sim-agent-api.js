@@ -57,7 +57,24 @@
       if (u.setInitCwnd) u.setInitCwnd(v);
       else if (u.setKnob) u.setKnob("initCwnd", "initCwndN", v);
     },
-    linkBwMbps: (v) => { _sim.linkBwMbps = v; ui().setKnob && ui().setKnob("linkbw", "linkbwN", v); },
+    routerReadMbps: (v) => {
+      _sim.routerReadMbps = v;
+      const u = ui();
+      if (u.setRouterReadRate) u.setRouterReadRate(v);
+      else if (u.setKnob) u.setKnob("routerRead", "routerReadN", v);
+    },
+    linkBwMbps: (v) => {
+      _sim.linkBwMbps = v;
+      const u = ui();
+      if (u.setLinkBwRate) u.setLinkBwRate(v);
+      else if (u.setKnob) u.setKnob("linkbw", "linkbwN", v);
+    },
+    routerWriteMbps: (v) => {
+      _sim.routerWriteMbps = v;
+      const u = ui();
+      if (u.setRouterWriteRate) u.setRouterWriteRate(v);
+      else if (u.setKnob) u.setKnob("routerWrite", "routerWriteN", v);
+    },
     queueKB: (v) => {
       _sim.queueSizeBytes = Math.round(v * 1024);
       const u = ui();
@@ -75,11 +92,15 @@
     },
     appWriteMbps: (v) => {
       _sim.appWriteRateMbps = v;
-      ui().setKnob && ui().setKnob("appWrite", "appWriteN", v);
+      const u = ui();
+      if (u.setAppWriteRate) u.setAppWriteRate(v);
+      else if (u.setKnob) u.setKnob("appWrite", "appWriteN", v);
     },
     appReadMbps: (v) => {
       _sim.appReadRateMbps = v;
-      ui().setKnob && ui().setKnob("appRead", "appReadN", v);
+      const u = ui();
+      if (u.setAppReadRate) u.setAppReadRate(v);
+      else if (u.setKnob) u.setKnob("appRead", "appReadN", v);
     },
     simSpeed: (v) => {
       _sim.speed = v;
@@ -295,6 +316,8 @@
           mss: cfg.mss_B,
           payloadMb: cfg.payload_MB,
           initialCwndSeg: cfg.initial_cwnd_seg,
+          routerReadMbps: cfg.router_read_mbps,
+          routerWriteMbps: cfg.router_write_mbps != null ? cfg.router_write_mbps : cfg.link_bw_mbps,
           linkBwMbps: cfg.link_bw_mbps,
           queueKB: cfg.queue_KB,
           lossPct: cfg.loss_pct,

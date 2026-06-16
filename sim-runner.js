@@ -65,7 +65,7 @@
   }
   function queueDepthBytes(sim) {
     const waitMs = Math.max(0, sim.lastPacketLeaveTime - sim.simTime);
-    return Math.round(waitMs * sim.linkBwMbps * 125);
+    return Math.round(waitMs * SimCore.effectiveDrainMbps(sim) * 125);
   }
   function advRwndSeg(sim) {
     return Math.floor(Math.max(0, sim.rmemSize - sim.rmemUsed) / sim.mss);
@@ -172,7 +172,10 @@
         goodput_KBms: +goodput_KBms.toFixed(4),
         goodput_Mbps: +goodput_Mbps.toFixed(4),
         rtt_ms: sim.rtt,
+        router_read_mbps: sim.routerReadMbps,
+        router_write_mbps: sim.routerWriteMbps,
         link_bw_mbps: sim.linkBwMbps,
+        effective_drain_mbps: SimCore.effectiveDrainMbps(sim),
         mss_B: sim.mss,
         wmem_used_bytes: sim.wmemUsed,
         rmem_used_bytes: sim.rmemUsed,
@@ -412,7 +415,10 @@
       if (rafCallbacks.onTick) rafCallbacks.onTick();
       if (!wasFinished && sim.finished) {
         finalizeSummary();
+        sim.running = false;
+        rafActive = false;
         if (rafCallbacks.onFinished) rafCallbacks.onFinished();
+        return;
       }
       rafHandle = requestAnimationFrame(rafFrame);
     }
@@ -460,7 +466,10 @@
         rmem_used_bytes: sim.rmemUsed,
         advertised_rwnd_seg: advRwndSeg(sim),
         rtt_ms: sim.rtt,
+        router_read_mbps: sim.routerReadMbps,
+        router_write_mbps: sim.routerWriteMbps,
         link_bw_mbps: sim.linkBwMbps,
+        effective_drain_mbps: SimCore.effectiveDrainMbps(sim),
         mss_B: sim.mss,
         payload_bytes: sim.payloadBytes,
         // BBR-only fields (zero/null in other CC modes).
@@ -492,7 +501,10 @@
         payload_MB: +(sim.payloadBytes / 1024 / 1024).toFixed(6),
         initial_cwnd_seg: sim.initialCwndSeg,
         cwnd_seg: Math.floor(sim.cwndSeg),
+        router_read_mbps: sim.routerReadMbps,
+        router_write_mbps: sim.routerWriteMbps,
         link_bw_mbps: sim.linkBwMbps,
+        effective_drain_mbps: SimCore.effectiveDrainMbps(sim),
         queue_KB: +(sim.queueSizeBytes / 1024).toFixed(3),
         loss_pct: sim.lossPct,
         wmem_KB: +(sim.wmemSize / 1024).toFixed(3),
@@ -529,7 +541,10 @@
       }
       if (cfg.initial_cwnd_seg != null) sim.initialCwndSeg = cfg.initial_cwnd_seg;
       if (cfg.cwnd_seg != null) sim.cwndSeg = cfg.cwnd_seg;
+      if (cfg.router_read_mbps != null) sim.routerReadMbps = cfg.router_read_mbps;
       if (cfg.link_bw_mbps != null) sim.linkBwMbps = cfg.link_bw_mbps;
+      if (cfg.router_write_mbps != null) sim.routerWriteMbps = cfg.router_write_mbps;
+      else if (cfg.link_bw_mbps != null) sim.routerWriteMbps = cfg.link_bw_mbps;
       if (cfg.queue_KB != null) sim.queueSizeBytes = Math.round(cfg.queue_KB * 1024);
       if (cfg.loss_pct != null) sim.lossPct = cfg.loss_pct;
       if (cfg.wmem_KB != null) sim.wmemSize = Math.round(cfg.wmem_KB * 1024);

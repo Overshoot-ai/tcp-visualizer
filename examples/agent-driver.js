@@ -42,10 +42,10 @@ const targetUrl = urlOverride || URL;
   const version = await page.evaluate(() => window.SimAgent.version);
   console.log("→ SimAgent v" + version + " ready");
 
-  // ---- Demo 1: healthy path, default IW=10 ----
-  console.log("\n=== Demo 1: healthy path, cold start (IW=10) ===");
+  // ---- Demo 1: cold TCP, default IW=10 ----
+  console.log("\n=== Demo 1: cold TCP, IW10 ===");
   const r1 = await page.evaluate(async () => {
-    await window.SimAgent.applyPreset("healthy");
+    await window.SimAgent.applyPreset("cold-iw10");
     await window.SimAgent.runToCompletion({ visual: false, maxSimMs: 60000 });
     return window.SimAgent.getArtifact();
   });
@@ -55,9 +55,9 @@ const targetUrl = urlOverride || URL;
   console.log("  goodput:", r1.summary.goodput_Mbps.toFixed(1), "Mbps");
   console.log("  events:", r1.events.map((e) => `${e.t_ms}ms ${e.type}`).join(", "));
 
-  // ---- Demo 2: cold vs warm start on the long fat pipe ----
-  console.log("\n=== Demo 2: cwnd-buildup vs warm-start ===");
-  for (const name of ["cwnd-buildup", "warm-start"]) {
+  // ---- Demo 2: the three blog presets ----
+  console.log("\n=== Demo 2: blog presets ===");
+  for (const name of ["cold-iw10", "warm-iw10", "warm-iw3500-rwnd-warm"]) {
     const s = await page.evaluate(async (preset) => {
       await window.SimAgent.applyPreset(preset);
       await window.SimAgent.runToCompletion({ visual: false, maxSimMs: 60000 });
@@ -70,27 +70,10 @@ const targetUrl = urlOverride || URL;
     );
   }
 
-  // ---- Demo 3: cubic vs bbr on the lossy link ----
-  console.log("\n=== Demo 3: lossy link, cubic vs bbr ===");
-  for (const cc of ["cubic", "bbr"]) {
-    const s = await page.evaluate(async (mode) => {
-      await window.SimAgent.applyPreset("lossy");
-      await window.SimAgent.setCcMode(mode);
-      await window.SimAgent.runToCompletion({ visual: false, maxSimMs: 120000 });
-      return window.SimAgent.getSummary();
-    }, cc);
-    console.log(
-      "  " + cc.padEnd(6) +
-        "elapsed=" + String(s.elapsed_sim_ms).padStart(7) + "ms " +
-        "goodput=" + s.goodput_Mbps.toFixed(1).padStart(6) + " Mbps " +
-        "retransmits=" + s.retransmits_total
-    );
-  }
-
-  // ---- Demo 4: runUntil event ----
-  console.log("\n=== Demo 4: runUntil Hystart exit ===");
+  // ---- Demo 3: runUntil event ----
+  console.log("\n=== Demo 3: runUntil Hystart exit ===");
   const r4 = await page.evaluate(async () => {
-    await window.SimAgent.applyPreset("healthy");
+    await window.SimAgent.applyPreset("cold-iw10");
     await window.SimAgent.runUntil(
       (state) => state.cc_phase === "cong-avoid",
       { visual: false, maxSimMs: 60000 }

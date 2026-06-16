@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <title>TCP in-flight visualizer — single large upload</title>
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
     <style>
       :root {
         color-scheme: dark;
@@ -47,6 +47,12 @@
         grid-template-columns: 1fr 320px;
         height: 100vh;
         width: 100vw;
+      }
+      .rotate-gate {
+        display: none;
+      }
+      .mobile-toolbar {
+        display: none;
       }
       .stage {
         display: grid;
@@ -132,6 +138,12 @@
       .legend .sw.ack {
         background: var(--good);
         border-radius: 50%;
+      }
+      .legend .sw.handshake {
+        background: #c792ea;
+        border: 1px solid rgba(199, 146, 234, 0.55);
+        border-radius: 50%;
+        box-shadow: 0 0 0 2px rgba(199, 146, 234, 0.16);
       }
       .legend .sw.rtx {
         background: var(--warn);
@@ -406,7 +418,7 @@
 
       .controls {
         display: grid;
-        grid-template-columns: 1fr 1fr 1fr;
+        grid-template-columns: 1fr 1fr;
         gap: 6px;
       }
       .controls button {
@@ -433,6 +445,27 @@
       .controls button:disabled {
         opacity: 0.45;
         cursor: not-allowed;
+      }
+      .mobile-toolbar button {
+        background: rgba(28, 34, 48, 0.94);
+        color: var(--ink);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 7px 10px;
+        font-family: var(--mono);
+        font-size: 12px;
+        cursor: pointer;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+      }
+      .mobile-toolbar button.primary {
+        background: #1e3052;
+        border-color: var(--accent);
+        color: var(--accent-2);
+        min-width: 72px;
+      }
+      .mobile-toolbar button.active {
+        border-color: var(--accent);
+        color: var(--accent-2);
       }
 
       /* Mode toggle: two adjacent segmented buttons at top of Knobs section. */
@@ -751,14 +784,189 @@
           grid-template-columns: minmax(200px, 280px);
         }
       }
+      @media (max-width: 900px) and (orientation: landscape) {
+        .app {
+          display: block;
+          height: 100dvh;
+          width: 100vw;
+        }
+        .stage {
+          height: 100dvh;
+          padding: max(7px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(7px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+          gap: 6px;
+          grid-template-rows: auto 1fr;
+        }
+        .title {
+          min-height: 18px;
+          gap: 8px;
+          overflow: hidden;
+          flex-wrap: nowrap;
+        }
+        .title h1 {
+          display: none;
+        }
+        .title .sub {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-size: 11px;
+        }
+        .title .formula {
+          display: none;
+        }
+        .scene {
+          border-radius: 4px;
+        }
+        .hud {
+          padding: 7px 8px;
+          gap: 0;
+        }
+        .hud-headline {
+          grid-template-columns: minmax(112px, 1.25fr) minmax(92px, 1fr) minmax(82px, 0.9fr);
+          gap: 4px 12px;
+          width: min(92vw, 420px);
+        }
+        .hud-headline .hcell:nth-child(2) {
+          display: none;
+        }
+        .hud .hcell {
+          min-width: 0;
+          overflow: visible;
+        }
+        .hud .label {
+          font-size: 8px;
+          letter-spacing: 0.04em;
+        }
+        .hud .value {
+          font-size: 16px;
+          max-width: none;
+          overflow: visible;
+          text-overflow: clip;
+        }
+        .hud .sub {
+          display: none;
+        }
+        .hud .progress {
+          height: 3px;
+          margin-top: 3px;
+        }
+        .hud .stats {
+          display: none;
+        }
+        .mobile-toolbar {
+          position: fixed;
+          left: 50%;
+          top: 50%;
+          transform: translate(-50%, -8%);
+          z-index: 9300;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .legend {
+          position: fixed;
+          left: max(8px, env(safe-area-inset-left));
+          right: max(8px, env(safe-area-inset-right));
+          bottom: calc(max(8px, env(safe-area-inset-bottom)) + 44px);
+          z-index: 9200;
+          max-height: 42dvh;
+          overflow: auto;
+          padding: 10px;
+          border: 1px solid var(--border);
+          border-radius: 6px;
+          background: rgba(22, 26, 34, 0.96);
+          box-shadow: 0 14px 34px rgba(0, 0, 0, 0.32);
+          transform: translateY(calc(100% + 56px));
+          transition: transform 140ms ease;
+        }
+        body.mobile-legend-open .legend {
+          transform: translateY(0);
+        }
+        .panel {
+          position: fixed;
+          top: 0;
+          right: 0;
+          bottom: 0;
+          z-index: 9100;
+          width: min(360px, 58vw);
+          max-width: calc(100vw - 76px);
+          padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) 12px;
+          border-left: 1px solid var(--border);
+          box-shadow: -18px 0 36px rgba(0, 0, 0, 0.36);
+          transform: translateX(105%);
+          transition: transform 160ms ease;
+        }
+        .panel > .section:last-child,
+        .panel .preset-more {
+          display: none;
+        }
+        body.mobile-panel-open .panel {
+          transform: translateX(0);
+        }
+        .panel .controls {
+          display: none;
+        }
+      }
+      @media (max-width: 900px) and (orientation: portrait) {
+        html,
+        body {
+          overflow: hidden;
+        }
+        .app {
+          filter: blur(6px);
+          pointer-events: none;
+          user-select: none;
+        }
+        .rotate-gate {
+          position: fixed;
+          inset: 0;
+          z-index: 10000;
+          display: grid;
+          place-items: center;
+          padding: max(24px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+          background: rgba(15, 17, 21, 0.94);
+          color: var(--ink);
+        }
+        .rotate-gate-inner {
+          width: min(320px, 100%);
+          text-align: center;
+        }
+        .rotate-icon {
+          width: 72px;
+          height: 48px;
+          margin: 0 auto 18px;
+          border: 2px solid var(--accent);
+          border-radius: 8px;
+          box-shadow: 0 0 0 1px rgba(110, 168, 255, 0.18), 0 10px 28px rgba(0, 0, 0, 0.25);
+        }
+        .rotate-gate h2 {
+          margin: 0 0 8px;
+          font-size: 15px;
+          font-weight: 600;
+          letter-spacing: 0;
+        }
+        .rotate-gate p {
+          margin: 0;
+          color: var(--ink-dim);
+          font-size: 12px;
+        }
+      }
     </style>
   </head>
   <body>
+    <div class="rotate-gate" aria-hidden="true">
+      <div class="rotate-gate-inner">
+        <div class="rotate-icon"></div>
+        <h2>Rotate to landscape</h2>
+        <p>This simulation needs a wide viewport.</p>
+      </div>
+    </div>
     <div class="app">
       <div class="stage">
         <div class="title">
           <h1>TCP in-flight visualizer</h1>
-          <span class="sub" id="presetSub">Healthy path</span>
+          <span class="sub" id="presetSub">1. Cold TCP, IW10</span>
           <span class="formula">goodput &asymp; <b>cwnd_bytes / RTT</b> &middot; 1 KB/ms = 8 Mbps</span>
         </div>
         <div class="scene">
@@ -799,9 +1007,10 @@
               <div class="row tcp-only bbr-only" id="rowBtlBw"><span class="k kw" data-term="btlbw">btlBw</span><span class="v" id="sBtlBw">— Mbps</span></div>
               <div class="row tcp-only bbr-only" id="rowRtprop"><span class="k kw" data-term="rtprop">RTprop</span><span class="v" id="sRtprop">— ms</span></div>
               <div class="row tcp-only bbr-only" id="rowPacing"><span class="k kw" data-term="bbr-pacing">pacing rate</span><span class="v" id="sPacing">— Mbps</span></div>
-              <div class="row tcp-only" id="rowRwndAdv"><span class="k kw" data-term="advertised-rwnd">recv window</span><span class="v" id="sRwndAdv">0 pkts</span></div>
+              <div class="row tcp-only" id="rowRwndAdv"><span class="k kw" data-term="advertised-rwnd">rwnd</span><span class="v" id="sRwndAdv">0 pkts</span></div>
               <div class="row"><span class="k kw" data-term="mss">MSS</span><span class="v" id="sMss">1398 B</span></div>
               <div class="row"><span class="k kw" data-term="rtt">RTT</span><span class="v" id="sRtt">100 ms</span></div>
+              <div class="row"><span class="k kw" data-term="bdp">BDP</span><span class="v" id="sBdp">0 pkts</span></div>
               <div class="row"><span class="k kw" data-term="payload">payload</span><span class="v" id="sPayload">10.0 MB</span></div>
               <div class="row tcp-only" id="rowRtx"><span class="k kw" data-term="retransmits">retransmits</span><span class="v" id="sRtx">0</span></div>
               <div class="row"><span class="k kw" data-term="drops">drops</span><span class="v" id="sDrops">0</span></div>
@@ -816,9 +1025,15 @@
               <div class="row"><span class="k kw" data-term="write-blocked">write blocked</span><span class="v" id="sWriteBlocked">0 ms</span></div>
               <div class="row tcp-only" id="rowZeroWin"><span class="k kw" data-term="zero-window">zero-window</span><span class="v" id="sZeroWin">0 ms</span></div>
               <div class="row tcp-only" id="rowCeil"><span class="k kw" data-term="cwnd-ceiling">cwnd ceiling</span><span class="v" id="sCeil">0.0 Mbps</span></div>
-              <div class="row"><span class="k kw" data-term="link-ceiling">link ceiling</span><span class="v" id="sLinkCeil">0.0 Mbps</span></div>
+              <div class="row"><span class="k kw" data-term="link-ceiling">eff. drain</span><span class="v" id="sLinkCeil">0.0 Mbps</span></div>
             </div>
           </div>
+        </div>
+        <div class="mobile-toolbar" aria-label="Mobile controls">
+          <button id="btnMobileStart" class="primary" type="button">Start</button>
+          <button id="btnMobileReset" type="button">Restart</button>
+          <button id="btnMobileKnobs" type="button" aria-expanded="false">Knobs</button>
+          <button id="btnMobileLegend" type="button" aria-expanded="false">Legend</button>
         </div>
         <div class="legend">
           <span class="item kw" data-term="sender-body"><span class="sw"></span>buffered (sender)</span>
@@ -826,6 +1041,7 @@
           <span class="item kw" data-term="sender-body"><span class="sw acked"></span>drained (sender)</span>
           <span class="item kw" data-term="receiver-body"><span class="sw recv"></span>received (receiver)</span>
           <span class="item kw" data-term="segment"><span class="sw pkt"></span>data packet &rarr;</span>
+          <span class="item kw tcp-only" data-term="handshake"><span class="sw handshake"></span>handshake</span>
           <span class="item kw tcp-only" data-term="ack"><span class="sw ack"></span>&larr; ACK</span>
           <span class="item kw tcp-only" data-term="retransmits"><span class="sw rtx"></span>retransmit</span>
           <span class="item kw" data-term="queue-drop"><span class="sw lost"></span>lost</span>
@@ -838,13 +1054,9 @@
           <h2>Preset</h2>
           <div class="preset-select">
             <select id="preset">
-              <option value="healthy">Healthy path</option>
-              <option value="cwnd-buildup">Cwnd buildup (long fat pipe)</option>
-              <option value="warm-start">Good initial cwnd (warm start)</option>
-              <option value="congestion">Congestion (shallow buffer)</option>
-              <option value="bufferbloat">Bufferbloat (oversized buffer)</option>
-              <option value="lossy">Lossy link (radio / Wi-Fi)</option>
-              <option value="slow-receiver">Slow receiver (flow control)</option>
+              <option value="cold-iw10">1. Cold TCP, IW10</option>
+              <option value="warm-iw10">2. Warm TCP, IW10</option>
+              <option value="warm-iw3500-rwnd-warm">3. Warm TCP, IW3500 + rwnd warm</option>
             </select>
           </div>
           <div class="preset-card">
@@ -927,7 +1139,7 @@
             <input id="payloadN" type="number" min="0.1" max="500" step="0.1" value="10" />
           </div>
 
-          <div class="knob" title="Link bw (Mbps) — Bottleneck link rate. The sender's wire clock serializes each packet onto the band at MSS×8/link_bw seconds, capping the send rate. Steady-state goodput = min(cwnd_bytes/RTT, link_bw). Drop link_bw below the cwnd ceiling to flip the binding constraint from cwnd to link.">
+          <div class="knob" title="Link bw (Mbps) — Path capacity available to this flow. The router queue drains at min(link bw, router write), so lowering either one can become the effective bottleneck.">
             <label for="linkbw" class="kw" data-term="link-bw">Link bw (Mbps)</label>
             <input id="linkbw" type="range" min="0" max="1000" step="1" value="600" />
             <input id="linkbwN" type="number" min="1" max="100000" step="1" value="1000" />
@@ -936,7 +1148,7 @@
           <div class="knob" title="Router buffer (KB) — buffer at the bottleneck router/switch that holds packets waiting to serialize onto the slowest link in the path. Rule of thumb: 1 BDP = link_bw × RTT / 8. Larger buffers absorb bursts but add latency under load (bufferbloat). Smaller buffers cut latency but cubic loses throughput. Cubic stabilizes when cwnd ≈ BDP + buffer. Try values around 0.5–2× BDP.">
             <label for="queue" class="kw" data-term="queue-size">Router (KB)</label>
             <input id="queue" type="range" min="0" max="1000" step="1" value="727" />
-            <input id="queueN" type="number" min="4" max="65536" step="1" value="1024" />
+            <input id="queueN" type="number" min="4" max="16384" step="1" value="1024" />
           </div>
 
           <div class="knob" title="Loss (%) — Background per-packet random loss, independent of queue state (bit errors, radio interference, flaky middleboxes). These drops are NOT congestion, but cubic reacts as if they were — each one can trigger a cwnd cut. Try 1% and compare cubic vs bbr.">
@@ -948,16 +1160,28 @@
           <details class="collapsible">
             <summary><span class="kw" data-term="buffers">Buffers</span></summary>
             <div class="section-body">
+              <div class="knob" title="router read (Mbps) — How fast packets can enter the bottleneck router queue from the sender side. Higher than router write means bursts can build queue; equal to or lower than router write means ingress pacing prevents router backlog.">
+                <label for="routerRead" class="kw" data-term="router-read">router read (Mbps)</label>
+                <input id="routerRead" type="range" min="0" max="1000" step="1" value="800" />
+                <input id="routerReadN" type="number" min="1" max="100000" step="1" value="10000" />
+              </div>
+
+              <div class="knob" title="router write (Mbps) — Egress capacity out of the router queue toward the receiver. Effective drain is min(link bw, router write).">
+                <label for="routerWrite" class="kw" data-term="router-write">router write (Mbps)</label>
+                <input id="routerWrite" type="range" min="0" max="1000" step="1" value="600" />
+                <input id="routerWriteN" type="number" min="1" max="100000" step="1" value="1000" />
+              </div>
+
               <div class="knob" title="Send buffer (wmem, KB) — the kernel's TCP write buffer on the sender (Linux: tcp_wmem). Holds every byte from the moment the app writes it until its ACK arrives, because the kernel may need to retransmit. If the send buffer < cwnd_bytes, it caps in-flight below cwnd and the app blocks on write. Set small to see write-side backpressure.">
                 <label for="wmem" class="kw" data-term="wmem">send buf (KB)</label>
                 <input id="wmem" type="range" min="0" max="1000" step="1" value="691" />
                 <input id="wmemN" type="number" min="4" max="32768" step="1" value="4096" />
               </div>
 
-              <div class="knob" title="app write (Mbps) — How fast the sending app pushes bytes into the send buffer. 0 = saturate (writes are instant and the buffer fills as fast as ACKs free space). Any positive value paces the app: if it writes faster than the kernel drains, the send buffer fills, the app blocks, and 'write blocked' time accumulates.">
+              <div class="knob" title="app write (Mbps) — How fast the sending app pushes bytes into the send buffer. 0 means the app writes nothing. Use a high explicit rate when the app should not be the bottleneck; use a low rate to model a slow producer.">
                 <label for="appWrite" class="kw" data-term="app-write">app write (Mbps)</label>
-                <input id="appWrite" type="range" min="0" max="10000" step="1" value="0" />
-                <input id="appWriteN" type="number" min="0" max="10000" step="1" value="0" />
+                <input id="appWrite" type="range" min="0" max="1000" step="1" value="576" />
+                <input id="appWriteN" type="number" min="0" max="10000" step="1" value="200" />
               </div>
 
               <div class="knob" title="Recv buffer (rmem, KB) — the kernel's TCP read buffer on the receiver (Linux: tcp_rmem). Holds arrived bytes until the app reads them. The receiver advertises recv window (rwnd) = free buffer space; the sender's effective window is min(cwnd, rwnd). If the receiver app is slow, the buffer fills, the recv window shrinks to zero, and the sender stalls.">
@@ -966,10 +1190,10 @@
                 <input id="rmemN" type="number" min="4" max="32768" step="1" value="4096" />
               </div>
 
-              <div class="knob" title="app read (Mbps) — How fast the receiver app drains the receive buffer. 0 = saturate (instant drain; the buffer only shows the current step's arrivals). Set below the arrival rate (≈ goodput) and it visibly fills, the bucket outline turns yellow then red, the recv window collapses, and 'zero-window' time accumulates as the sender stalls.">
+              <div class="knob" title="app read (Mbps) — How fast the receiver app drains the receive buffer. 0 means the app reads nothing. Set below the arrival rate (≈ goodput) and the buffer fills, rwnd collapses, and zero-window time accumulates.">
                 <label for="appRead" class="kw" data-term="app-read">app read (Mbps)</label>
-                <input id="appRead" type="range" min="0" max="10000" step="1" value="0" />
-                <input id="appReadN" type="number" min="0" max="10000" step="1" value="0" />
+                <input id="appRead" type="range" min="0" max="1000" step="1" value="576" />
+                <input id="appReadN" type="number" min="0" max="10000" step="1" value="200" />
               </div>
             </div>
           </details>
@@ -977,8 +1201,7 @@
 
         <div class="controls">
           <button id="btnStart" class="primary">Start</button>
-          <button id="btnPause" disabled>Pause</button>
-          <button id="btnReset">Reset</button>
+          <button id="btnReset">Restart</button>
         </div>
 
         <div class="section">
@@ -1025,12 +1248,14 @@
         advertisedRwndBytes: _advertisedRwndBytes,
         advertisedRwndSeg: _advertisedRwndSeg,
         effectiveWindowSeg: _effectiveWindowSeg,
+        effectiveDrainMbps: _effectiveDrainMbps,
         inflightSegCount: _inflightSegCount,
         presets,
       } = SC;
       const advertisedRwndBytes = () => _advertisedRwndBytes(sim);
       const advertisedRwndSeg = () => _advertisedRwndSeg(sim);
       const effectiveWindowSeg = () => _effectiveWindowSeg(sim);
+      const effectiveDrainMbps = () => _effectiveDrainMbps(sim);
       const inflightSegCount = () => _inflightSegCount(sim);
 
       /* ---------- helpers ---------- */
@@ -1078,15 +1303,23 @@
         },
         "queue-size": {
           title: "Router buffer (bottleneck)",
-          body: "Buffer at a router/switch where packets wait their turn to transmit onto the next link. Fills whenever packets arrive faster than the link can drain them. This happens two ways:\n\n  1. The next link is genuinely slow (e.g., a 100 Mbps WAN hop downstream of a 1 Gbps interface).\n  2. The next link is fast but many flows converge on it and compete for capacity.\n\nSame math either way: arrival rate > drain rate → buffer grows → eventually overflow. The router modeled here represents the path's bottleneck — wherever that is. link_bw is the effective drain rate this flow sees (its share of the link after contention).\n\nRule of thumb: buffer ≈ 1 BDP for healthy single-flow cubic. Smaller buffers cut latency under load (less bufferbloat) but hurt throughput; larger buffers absorb bursts but add queueing delay.",
+          body: "Buffer at a router/switch where packets wait their turn to transmit onto the next link. It fills when router read is faster than effective drain: packets enter the queue faster than the path can drain them. Effective drain = min(link bw, router write).\n\nTwo real-world causes look the same in the queue: a slow downstream link, or many flows sharing the outgoing capacity. Same math either way: arrival rate > drain rate → buffer grows → eventually overflow.\n\nRule of thumb: buffer ≈ 1 BDP for healthy single-flow cubic. Smaller buffers cut latency under load (less bufferbloat) but hurt throughput; larger buffers absorb bursts but add queueing delay.",
         },
         "queue-drop": {
           title: "Router drop (bottleneck overflow)",
           body: "Packet dropped at the bottleneck router because its buffer was full on arrival. The dominant loss mechanism in real networks under load.\n\nHappens whenever incoming rate exceeds outbound rate at that router. Two real-world ways that condition arises:\n\n  1. The downstream link is genuinely slow (one sender saturates it).\n  2. Many flows converge on a fast link and their combined traffic exceeds its capacity.\n\nMathematically identical — same overflow, same drop. Cubic was designed for this: when a burst of drops arrives, it cuts cwnd × 0.7 once (via fast retransmit + recovery) and continues, instead of going back to slow-start.",
         },
+        "router-read": {
+          title: "router read (Mbps)",
+          body: "Ingress rate into the bottleneck router queue from the sender side. If router read is much higher than effective drain, bursts can pile up in the router buffer. If router read is equal to or below effective drain, the queue usually stays empty because ingress is already paced at or below drain capacity.",
+        },
+        "router-write": {
+          title: "router write (Mbps)",
+          body: "Egress capacity out of the bottleneck router queue toward the receiver. The queue's actual drain rate is min(link bw, router write), so router write only matters when it is below the path link bandwidth.",
+        },
         "link-bw": {
           title: "Link bw (Mbps)",
-          body: "Bottleneck link rate. The sender's wire clock serializes each packet onto the band at MSS×8/link_bw seconds, capping the send rate. Steady-state goodput = min(cwnd_bytes/RTT, link_bw). Drop link_bw below the cwnd ceiling to flip the binding constraint from cwnd to link.",
+          body: "Path capacity available to this flow. The queue's effective drain is min(link bw, router write), so lowering link bw can become the bottleneck even if router write is high.",
         },
         wmem: {
           title: "Send buffer (wmem)",
@@ -1094,7 +1327,7 @@
         },
         "app-write": {
           title: "app write (Mbps)",
-          body: "How fast the sending app pushes bytes into the send buffer. 0 = saturate (writes are instant and the buffer fills as fast as ACKs free space). Any positive value paces the app: if it writes faster than the kernel drains, the send buffer fills, the app blocks, and 'write blocked' time accumulates.",
+          body: "How fast the sending app pushes bytes into the send buffer. 0 means the app writes nothing. Use a high explicit rate when the app should not be the bottleneck; use a low rate to model a slow producer.",
         },
         rmem: {
           title: "Receive buffer (rmem)",
@@ -1102,7 +1335,7 @@
         },
         "app-read": {
           title: "app read (Mbps)",
-          body: "How fast the receiver app drains the receive buffer. 0 = saturate (instant drain; the buffer only shows the current step's arrivals). Set below the arrival rate (≈ goodput) and it visibly fills, the bucket outline turns yellow then red, the recv window collapses, and 'zero-window' time accumulates as the sender stalls.",
+          body: "How fast the receiver app drains the receive buffer. 0 means the app reads nothing. Set below the arrival rate (≈ goodput) and the receive buffer fills, rwnd collapses, and zero-window time accumulates as the sender stalls.",
         },
         goodput: {
           title: "Goodput",
@@ -1262,7 +1495,7 @@
         },
         buffers: {
           title: "Buffer pipeline",
-          body: "How bytes flow end to end: the app writes into the send buffer (wmem); the kernel emits MSS-sized packets while inflight < min(cwnd, recv window). Bytes leave the send buffer only on ACK. Arrivals land in the receive buffer (rmem); the receiver advertises rwnd = free receive-buffer space, and the receiving app drains it at the app read rate. Set the app rates to 0 for instant (saturating) behavior on both ends.",
+          body: "How bytes flow end to end: the app writes into the send buffer (wmem); the kernel emits MSS-sized packets while inflight < min(cwnd, recv window). Bytes leave the send buffer only on ACK. Arrivals land in the receive buffer (rmem); the receiver advertises rwnd = free receive-buffer space, and the receiving app drains it at the app read rate. Use high app rates when the app should not be the bottleneck.",
         },
         "network-band": {
           title: "Network band",
@@ -1333,8 +1566,10 @@
         "queue": "queue-size",
         "kernel buffers": "buffers",
         "buffer pipeline": "buffers",
-        "link bw": "link-bw",
-        "link bandwidth": "link-bw",
+        "router read": "router-read",
+        "router write": "router-write",
+        "link bw": "router-write",
+        "link bandwidth": "router-write",
         "initial cwnd": "initial-cwnd",
         "init cwnd": "initial-cwnd",
         "initcwnd": "initial-cwnd",
@@ -1494,8 +1729,12 @@
         $("wmem").value = bufKBToSlider(p.wmemKB);
         $("rmemN").value = p.rmemKB;
         $("rmem").value = bufKBToSlider(p.rmemKB);
-        setKnob("appWrite", "appWriteN", p.appWriteMbps);
-        setKnob("appRead", "appReadN", p.appReadMbps);
+        setAppRate("appWrite", "appWriteN", p.appWriteMbps);
+        setAppRate("appRead", "appReadN", p.appReadMbps);
+        $("routerReadN").value = p.routerReadMbps != null ? p.routerReadMbps : 10000;
+        $("routerRead").value = linkbwMbpsToSlider(p.routerReadMbps != null ? p.routerReadMbps : 10000);
+        $("routerWriteN").value = p.routerWriteMbps != null ? p.routerWriteMbps : p.linkBwMbps;
+        $("routerWrite").value = linkbwMbpsToSlider(p.routerWriteMbps != null ? p.routerWriteMbps : p.linkBwMbps);
         $("linkbwN").value = p.linkBwMbps;
         $("linkbw").value = linkbwMbpsToSlider(p.linkBwMbps);
         $("queueN").value = queueKB;
@@ -1528,8 +1767,8 @@
       const KNOB_DESC = {
         cwnd: "cwnd (congestion window, in packets) — Hard cap on packets the sender may have unacked on the wire at any moment. cwnd_bytes = cwnd × MSS is the bytes-in-flight ceiling. To feel the lesson, drop cwnd far below the link's bandwidth-delay product and watch goodput collapse to cwnd_bytes/RTT regardless of link capacity.",
         payload: "Payload (request size, MB) — Total bytes the app wants to send. Split into ceil(payload / MSS) packets. Larger payloads make tail-latency effects (loss, cwnd-limit, buffer pressure) more visible.",
-        appWrite: "app write (Mbps) — How fast the sending app pushes bytes into the send buffer. 0 = saturate (writes are instant and the buffer fills as fast as ACKs free space). Any positive value paces the app: if it writes faster than the kernel drains, the send buffer fills, the app blocks, and 'write blocked' time accumulates.",
-        appRead: "app read (Mbps) — How fast the receiver app drains the receive buffer. 0 = saturate (instant drain; the buffer only shows the current step's arrivals). Set below the arrival rate (≈ goodput) and it visibly fills, the bucket outline turns yellow then red, the recv window collapses, and 'zero-window' time accumulates as the sender stalls.",
+        appWrite: "app write (Mbps) — How fast the sending app pushes bytes into the send buffer. 0 means the app writes nothing. Use a high explicit rate when the app should not be the bottleneck; use a low rate to model a slow producer.",
+        appRead: "app read (Mbps) — How fast the receiver app drains the receive buffer. 0 means the app reads nothing. Set below the arrival rate (≈ goodput) and the receive buffer fills, rwnd collapses, and zero-window time accumulates as the sender stalls.",
       };
       function recompute() {
         recomputeDerived(sim);
@@ -1555,10 +1794,7 @@
           setKnob("cwnd", "cwndN", sim.cwndSeg);
         }
         // UI side effects.
-        $("btnStart").disabled = false;
-        $("btnStart").textContent = "Start";
-        $("btnPause").disabled = true;
-        $("btnPause").textContent = "Pause";
+        updatePlaybackControls();
         draw();
         updateStats(0);
       }
@@ -1684,27 +1920,36 @@
         const m = clamp(mbps, LINKBW_MIN, LINKBW_MAX);
         return Math.round(((Math.log(m) - Math.log(LINKBW_MIN)) / linkbwLogSpan) * 1000);
       }
-      (function bindLinkBwLog() {
-        const r = $("linkbw"), n = $("linkbwN");
+      function bindMbpsLog(rangeId, numId, onChange) {
+        const r = $(rangeId), n = $(numId);
         r.addEventListener("input", () => {
           const mbps = linkbwSliderToMbps(parseFloat(r.value));
           const rounded = mbps >= 100 ? Math.round(mbps) : +mbps.toFixed(1);
           n.value = rounded;
-          sim.linkBwMbps = rounded;
+          onChange(rounded);
         });
         const fromNumber = () => {
           const mbps = clamp(parseFloat(n.value) || LINKBW_MIN, LINKBW_MIN, LINKBW_MAX);
           r.value = linkbwMbpsToSlider(mbps);
-          sim.linkBwMbps = mbps;
+          onChange(mbps);
         };
         n.addEventListener("input", fromNumber);
         n.addEventListener("change", fromNumber);
-      })();
-      // Queue size uses a log-scaled slider (4 KB ↔ 8192 KB) so values like 20
+      }
+      bindMbpsLog("routerRead", "routerReadN", (mbps) => {
+        sim.routerReadMbps = mbps;
+      });
+      bindMbpsLog("routerWrite", "routerWriteN", (mbps) => {
+        sim.routerWriteMbps = mbps;
+      });
+      bindMbpsLog("linkbw", "linkbwN", (mbps) => {
+        sim.linkBwMbps = mbps;
+      });
+      // Queue size uses a log-scaled slider (4 KB ↔ 16384 KB) so values like 20
       // and 2048 are easy to dial in. The slider position is 0–1000 (linear in
       // log space); the number input shows the actual KB value.
       const QUEUE_KB_MIN = 4;
-      const QUEUE_KB_MAX = 65536;
+      const QUEUE_KB_MAX = 16384;
       const queueLogMin = Math.log(QUEUE_KB_MIN);
       const queueLogSpan = Math.log(QUEUE_KB_MAX) - queueLogMin;
       function queueSliderToKB(pos) {
@@ -1735,13 +1980,13 @@
           "appWrite",
           KNOB_DESC.appWrite +
             "\n\nCurrent: " +
-            (sim.appWriteRateMbps === 0 ? "saturate (instant)" : sim.appWriteRateMbps.toFixed(0) + " Mbps")
+            sim.appWriteRateMbps.toFixed(0) + " Mbps"
         );
         setKnobTitle(
           "appRead",
           KNOB_DESC.appRead +
             "\n\nCurrent: " +
-            (sim.appReadRateMbps === 0 ? "saturate (instant)" : sim.appReadRateMbps.toFixed(0) + " Mbps")
+            sim.appReadRateMbps.toFixed(0) + " Mbps"
         );
       }
       // wmem and rmem use a log-scaled slider (4 KB ↔ 32768 KB = 32 MB) so values
@@ -1781,7 +2026,40 @@
         sim.rmemSize = kb * 1024;
         if (sim.rmemUsed > sim.rmemSize) sim.rmemUsed = sim.rmemSize;
       });
-      const getAppWrite = bindKnob("appWrite", "appWriteN", (v) => {
+      const APP_RATE_MIN_MBPS = 1;
+      const APP_RATE_MAX_MBPS = 10000;
+      const appRateLogSpan = Math.log(APP_RATE_MAX_MBPS) - Math.log(APP_RATE_MIN_MBPS);
+      function appRateSliderToMbps(pos) {
+        const p = clamp(pos, 0, 1000);
+        if (p <= 0) return 0;
+        return Math.round(Math.exp(Math.log(APP_RATE_MIN_MBPS) + ((p - 1) / 999) * appRateLogSpan));
+      }
+      function appRateMbpsToSlider(mbps) {
+        const m = clamp(mbps, 0, APP_RATE_MAX_MBPS);
+        if (m <= 0) return 0;
+        return Math.round(1 + ((Math.log(m) - Math.log(APP_RATE_MIN_MBPS)) / appRateLogSpan) * 999);
+      }
+      function setAppRate(rangeId, numId, mbps) {
+        const m = clamp(mbps, 0, APP_RATE_MAX_MBPS);
+        $(numId).value = Math.round(m);
+        $(rangeId).value = appRateMbpsToSlider(m);
+      }
+      function bindAppRateLog(rangeId, numId, onChange) {
+        const r = $(rangeId), n = $(numId);
+        r.addEventListener("input", () => {
+          const mbps = appRateSliderToMbps(parseFloat(r.value));
+          n.value = mbps;
+          onChange(mbps);
+        });
+        const fromNumber = () => {
+          const mbps = clamp(parseFloat(n.value) || 0, 0, APP_RATE_MAX_MBPS);
+          r.value = appRateMbpsToSlider(mbps);
+          onChange(mbps);
+        };
+        n.addEventListener("input", fromNumber);
+        n.addEventListener("change", fromNumber);
+      }
+      bindAppRateLog("appWrite", "appWriteN", (v) => {
         sim.appWriteRateMbps = v;
         updateAppRateHints();
       });
@@ -1789,7 +2067,7 @@
         sim.lossPct = v;
       });
 
-      const getAppRead = bindKnob("appRead", "appReadN", (v) => {
+      bindAppRateLog("appRead", "appReadN", (v) => {
         sim.appReadRateMbps = v;
         updateAppRateHints();
       });
@@ -1868,20 +2146,70 @@
        * Buttons drive the shared SimRunner instead of mutating sim.running
        * directly. The runner owns the RAF loop (see attachRafLoop() below).
        */
+      function updatePlaybackControls(labelOverride) {
+        const btn = $("btnStart");
+        const mobileBtn = $("btnMobileStart");
+        btn.disabled = false;
+        if (labelOverride) {
+          btn.textContent = labelOverride;
+        } else if (sim.finished) {
+          btn.textContent = "Start";
+        } else if (runner && runner.isRunning) {
+          btn.textContent = "Pause";
+        } else if (sim.simTime > 0) {
+          btn.textContent = "Resume";
+        } else {
+          btn.textContent = "Start";
+        }
+        if (mobileBtn) {
+          mobileBtn.disabled = btn.disabled;
+          mobileBtn.textContent = btn.textContent;
+        }
+      }
+
       $("btnStart").addEventListener("click", () => {
+        if (runner.isRunning) {
+          runner.pauseRaf();
+          updatePlaybackControls();
+          return;
+        }
         if (sim.finished) resetSim();
         runner.startRaf();
-        $("btnStart").disabled = true;
-        $("btnPause").disabled = false;
-      });
-      $("btnPause").addEventListener("click", () => {
-        if (!runner.isRunning) return;
-        runner.pauseRaf();
-        $("btnStart").disabled = false;
-        $("btnStart").textContent = "Resume";
-        $("btnPause").disabled = true;
+        updatePlaybackControls();
       });
       $("btnReset").addEventListener("click", () => resetSim());
+      $("btnMobileStart").addEventListener("click", () => $("btnStart").click());
+      $("btnMobileReset").addEventListener("click", () => $("btnReset").click());
+      (function bindMobileOverlays() {
+        const panelBtn = $("btnMobileKnobs");
+        const legendBtn = $("btnMobileLegend");
+        function setPanel(open) {
+          document.body.classList.toggle("mobile-panel-open", open);
+          panelBtn.classList.toggle("active", open);
+          panelBtn.setAttribute("aria-expanded", String(open));
+        }
+        function setLegend(open) {
+          document.body.classList.toggle("mobile-legend-open", open);
+          legendBtn.classList.toggle("active", open);
+          legendBtn.setAttribute("aria-expanded", String(open));
+        }
+        panelBtn.addEventListener("click", () => {
+          const open = !document.body.classList.contains("mobile-panel-open");
+          setPanel(open);
+          if (open) setLegend(false);
+        });
+        legendBtn.addEventListener("click", () => {
+          const open = !document.body.classList.contains("mobile-legend-open");
+          setLegend(open);
+          if (open) setPanel(false);
+        });
+        window.addEventListener("keydown", (ev) => {
+          if (ev.key === "Escape") {
+            setPanel(false);
+            setLegend(false);
+          }
+        });
+      })();
 
       /* ---------- mode toggle (TCP / UDP) ---------- */
       // Click flips sim.mode between "tcp" and "udp" and toggles a `mode-udp`
@@ -2300,11 +2628,10 @@
       // exits at another. Vertical position is purely visual; no physical
       // meaning. Real TCP has one wire per direction.
       //
-      // Natural visual ranges (knob -> px). Outside these ranges the band's
-      // dimension PINS at its min/max and we draw a warn outline + label on the
-      // pinned edge so the user sees that the visual is saturated. Packet
-      // speed continues to follow v = length / (RTT/2) even when pinned, so
-      // transit time stays physically honest.
+      // Natural visual ranges (knob -> px). RTT markers pin at min/max with
+      // an edge indicator. Link bandwidth still pins visually at max width,
+      // but without a warning border; packet timing remains driven by the
+      // configured link_bw value.
       const BAND_RTT_MIN_MS = 10;
       const BAND_RTT_MAX_MS = 300;
       const BAND_BW_MIN_MBPS = 50;
@@ -2315,13 +2642,16 @@
       function drawNetwork(x, y, w, h) {
         const isUdp = sim.mode === "udp";
 
-        // ----- compute band length from RTT -----
-        // Scale relative to the available column width: min length = 50% of w,
-        // max length = 100% of w. Linear inside [10, 300] ms; pinned outside.
+        // ----- compute path marker spacing from RTT -----
+        // The link itself spans the full slot; RTT/path length is encoded by
+        // how many fixed-time markers fit in the distance. 40 ms is the
+        // baseline visual spacing; higher RTT draws more markers.
         const availW = Math.max(40, w - 4);
         const rttClamped = clamp(sim.rtt, BAND_RTT_MIN_MS, BAND_RTT_MAX_MS);
-        const rttT = (rttClamped - BAND_RTT_MIN_MS) / (BAND_RTT_MAX_MS - BAND_RTT_MIN_MS);
-        let bandLength = availW * (0.5 + rttT * 0.5);
+        const bandLength = availW;
+        const BASE_RTT_MS = 40;
+        const BASE_CHEVRON_SPACING = 56;
+        const chevronSpacing = clamp(BASE_CHEVRON_SPACING * (BASE_RTT_MS / rttClamped), 8, 180);
         const rttPinnedLow = sim.rtt < BAND_RTT_MIN_MS;
         const rttPinnedHigh = sim.rtt > BAND_RTT_MAX_MS;
 
@@ -2329,11 +2659,9 @@
         // Scale relative to the available row height (which equals the buffer-bucket
         // height): min width = 40% of h, max width = h (matches bucket height).
         const availH = Math.max(40, h);
-        const bwClamped = clamp(sim.linkBwMbps, BAND_BW_MIN_MBPS, BAND_BW_MAX_MBPS);
+        const bwClamped = clamp(effectiveDrainMbps(), BAND_BW_MIN_MBPS, BAND_BW_MAX_MBPS);
         const bwT = (bwClamped - BAND_BW_MIN_MBPS) / (BAND_BW_MAX_MBPS - BAND_BW_MIN_MBPS);
         let bandWidth = availH * (0.4 + bwT * 0.6);
-        const bwPinnedLow = sim.linkBwMbps < BAND_BW_MIN_MBPS;
-        const bwPinnedHigh = sim.linkBwMbps > BAND_BW_MAX_MBPS;
 
         // ----- center the band within the allocated rectangle -----
         const bandX = x + Math.floor((w - bandLength) / 2);
@@ -2374,10 +2702,10 @@
         const qFrac = qSlotCount > 0 ? qOccupied / qSlotCount : 0;
         const qBucketW = clamp(Math.floor(bandLength * 0.15), 36, 90);
         // Bucket height scales with queue SIZE (not the band's path height).
-        // Log scale so the 4 KB–8192 KB knob range maps usefully to pixels.
+        // Log scale so the 4 KB–16384 KB knob range maps usefully to pixels.
         const queueKB = sim.queueSizeBytes / 1024;
         const QH_MIN_KB = 4;
-        const QH_MAX_KB = 65536;
+        const QH_MAX_KB = 16384;
         const qSizeT = Math.log(
           clamp(queueKB, QH_MIN_KB, QH_MAX_KB) / QH_MIN_KB
         ) / Math.log(QH_MAX_KB / QH_MIN_KB);
@@ -2436,7 +2764,8 @@
           ctx.lineTo(segX + segW, bandY + halfBand + 0.5);
           ctx.stroke();
           ctx.setLineDash([]);
-          // sparse directional chevrons: → in the data lane, ← in the ACK lane
+          // directional chevrons: each gap represents a fixed slice of time,
+          // so slower/higher-RTT paths show more markers.
           const chevron = (cx, cy, dir) => {
             ctx.beginPath();
             ctx.moveTo(cx - 3 * dir, cy - 3.5);
@@ -2448,7 +2777,8 @@
           ctx.lineWidth = 1.5;
           const dataLaneY = bandY + halfBand / 2;
           const ackLaneY = bandY + halfBand + halfBand / 2;
-          for (let cx = segX + 24; cx < segX + segW - 12; cx += 56) {
+          const chevronStart = Math.max(16, chevronSpacing * 0.45);
+          for (let cx = segX + chevronStart; cx < segX + segW - 12; cx += chevronSpacing) {
             chevron(cx, dataLaneY, 1);
             if (!isUdp) chevron(cx, ackLaneY, -1);
           }
@@ -2526,15 +2856,6 @@
           ctx.lineTo(bandX + 1, bandY + bandWidth);
           ctx.stroke();
         }
-        if (bwPinnedHigh || bwPinnedLow) {
-          // top + bottom edges (same outline for both width-pin states)
-          ctx.beginPath();
-          ctx.moveTo(bandX, bandY + 1);
-          ctx.lineTo(bandX + bandLength, bandY + 1);
-          ctx.moveTo(bandX, bandY + bandWidth - 1);
-          ctx.lineTo(bandX + bandLength, bandY + bandWidth - 1);
-          ctx.stroke();
-        }
         ctx.lineWidth = 1;
 
         // ----- direction labels (inside the band) -----
@@ -2555,19 +2876,11 @@
         ctx.textAlign = "right";
         let labelY = bandY - 2;
         if (rttPinnedHigh) {
-          ctx.fillText("RTT > 300 ms — band length pinned", bandX + bandLength, labelY);
+          ctx.fillText("RTT > 300 ms — marker spacing pinned", bandX + bandLength, labelY);
           labelY -= 12;
         }
         if (rttPinnedLow) {
-          ctx.fillText("RTT < 10 ms — band length pinned", bandX + bandLength, labelY);
-          labelY -= 12;
-        }
-        if (bwPinnedHigh) {
-          ctx.fillText("link_bw > 500 Mbps — band width pinned", bandX + bandLength, labelY);
-          labelY -= 12;
-        }
-        if (bwPinnedLow) {
-          ctx.fillText("link_bw < 50 Mbps — band width pinned", bandX + bandLength, labelY);
+          ctx.fillText("RTT < 10 ms — marker spacing pinned", bandX + bandLength, labelY);
           labelY -= 12;
         }
         ctx.textAlign = "left";
@@ -2598,13 +2911,12 @@
         let drawn = 0;
         const dotR = 3;
 
-        // 3-way handshake animation: during the first RTT (handshake knob on)
-        // a lone SYN crosses the data lane L→R over [0, RTT/2], then the
-        // SYN-ACK returns in the ACK lane R→L over [RTT/2, RTT]. Control
-        // packets skip the queue (one tiny segment never queues meaningfully)
-        // — same two-leg path the ACK dots use. The client's final ACK isn't
-        // drawn: it rides along with the first data flight.
-        if (!isUdp && sim.handshake && sim.simTime < sim.rtt) {
+        // 3-way handshake animation: SYN crosses L→R over [0, RTT/2],
+        // SYN-ACK returns R→L over [RTT/2, RTT], then the final ACK rides
+        // with the first outbound data flight over [RTT, RTT + RTT/2].
+        // Control packets skip the queue (one tiny segment never queues
+        // meaningfully), but use the same half-RTT path timing as data/ACKs.
+        if (!isUdp && sim.handshake && sim.simTime < sim.rtt + halfRtt) {
           const hsColor = "#c792ea";
           const drawHsDot = (px, py, label) => {
             ctx.fillStyle = hsColor;
@@ -2622,20 +2934,28 @@
             ctx.fillText(label, px + (ctx.textAlign === "left" ? 7 : -7), py - 6);
             ctx.textAlign = "left";
           };
-          if (sim.simTime < halfRtt) {
-            // SYN: sender → receiver, top (data) lane, centered.
-            const t = halfRtt > 0 ? sim.simTime / halfRtt : 1;
+          const drawOutboundControl = (t, label) => {
             let px;
             if (t < 0.5) px = bandX + (t / 0.5) * preLen;
             else px = qRightX + ((t - 0.5) / 0.5) * postLen;
-            drawHsDot(px, bandY + 0.5 * halfBand, "SYN");
-          } else {
+            drawHsDot(px, bandY + 0.5 * halfBand, label);
+          };
+          if (sim.simTime < halfRtt) {
+            // SYN: sender → receiver, top (data) lane, centered.
+            const t = halfRtt > 0 ? sim.simTime / halfRtt : 1;
+            drawOutboundControl(t, "SYN");
+          } else if (sim.simTime < sim.rtt) {
             // SYN-ACK: receiver → sender, bottom (ACK) lane.
             const t = halfRtt > 0 ? (sim.simTime - halfRtt) / halfRtt : 1;
             let px;
             if (t < 0.5) px = qRightX + postLen - (t / 0.5) * postLen;
             else px = preEndX - ((t - 0.5) / 0.5) * preLen;
             drawHsDot(px, bandY + halfBand + 0.5 * halfBand, "SYN-ACK");
+          } else {
+            // Final ACK: sender → receiver, same half-RTT speed as the SYN
+            // and first data flight. In real TCP it rides with the first data.
+            const t = halfRtt > 0 ? (sim.simTime - sim.rtt) / halfRtt : 1;
+            drawOutboundControl(t, "ACK");
           }
         }
 
@@ -2800,6 +3120,9 @@
         }
         $("sMss").textContent = sim.mss + " B";
         $("sRtt").textContent = sim.rtt.toFixed(0) + " ms";
+        const bdpBytes = effectiveDrainMbps() * sim.rtt * 125;
+        const bdpSeg = Math.ceil(bdpBytes / sim.mss);
+        $("sBdp").textContent = bdpSeg + " pkts (" + fmtBytes(bdpBytes) + ")";
         $("sPayload").textContent = (sim.payloadBytes / 1024 / 1024).toFixed(2) + " MB";
         $("sWmem").textContent =
           (sim.wmemUsed / 1024).toFixed(0) + " / " + (sim.wmemSize / 1024).toFixed(0) + " KB";
@@ -2814,7 +3137,7 @@
         $("sDrops").textContent = sim.drops.toString();
         // Live queue depth: how far ahead the wire clock is booked, in bytes.
         const queueWaitMsLive = Math.max(0, sim.lastPacketLeaveTime - sim.simTime);
-        const queuedBytesLive = queueWaitMsLive * sim.linkBwMbps * 125;
+        const queuedBytesLive = queueWaitMsLive * effectiveDrainMbps() * 125;
         const queueUsedKB = queuedBytesLive / 1024;
         const queueSizeKB = sim.queueSizeBytes / 1024;
         const queueUsedStr =
@@ -2836,8 +3159,8 @@
         const cwndCeilMbps = (ceilBytesPerMs * 8) / 1000;
         $("sCeil").textContent = cwndCeilMbps.toFixed(1) + " Mbps";
 
-        // link ceiling = link_bw
-        const linkCeilMbps = sim.linkBwMbps;
+        // effective drain ceiling = min(link bw, router write)
+        const linkCeilMbps = effectiveDrainMbps();
         $("sLinkCeil").textContent = linkCeilMbps.toFixed(1) + " Mbps";
 
         const pct = sim.segCount > 0 ? (sim.ackedCount / sim.segCount) * 100 : 0;
@@ -2865,7 +3188,7 @@
       /* ---------- runner / RAF loop ----------
        * The RAF loop now lives inside SimRunner. The page registers an onTick
        * that re-renders + refreshes stats, and an onFinished that flips the
-       * Start/Pause buttons into their "completed" state.
+       * playback button into its completed state.
        */
       const runner = SimRunner.create(sim, { sampleEveryMs: 100 });
       // Expose for resetSim() (defined above the runner declaration).
@@ -2876,9 +3199,7 @@
           updateStats(0);
         },
         onFinished: () => {
-          $("btnStart").disabled = false;
-          $("btnStart").textContent = "Restart";
-          $("btnPause").disabled = true;
+          updatePlaybackControls();
           // Allow the agent-driven runToCompletion() Promise to resolve.
           const u = window.__simUi;
           if (u && typeof u.onAgentFinish === "function") {
@@ -2907,6 +3228,20 @@
           $("queueN").value = Math.round(kb);
           $("queue").value = queueKBToSlider(kb);
         },
+        setRouterReadRate: (mbps) => {
+          $("routerReadN").value = mbps;
+          $("routerRead").value = linkbwMbpsToSlider(mbps);
+        },
+        setRouterWriteRate: (mbps) => {
+          $("routerWriteN").value = mbps;
+          $("routerWrite").value = linkbwMbpsToSlider(mbps);
+        },
+        setLinkBwRate: (mbps) => {
+          $("linkbwN").value = mbps;
+          $("linkbw").value = linkbwMbpsToSlider(mbps);
+        },
+        setAppWriteRate: (mbps) => setAppRate("appWrite", "appWriteN", mbps),
+        setAppReadRate: (mbps) => setAppRate("appRead", "appReadN", mbps),
         setSpeed: (s) => {
           $("speedN").value = s.toFixed(3);
           $("speed").value = speedToSlider(s);
@@ -2922,24 +3257,258 @@
         draw,
         updateStats,
         onStartedUI: () => {
-          $("btnStart").disabled = true;
-          $("btnPause").disabled = false;
+          updatePlaybackControls();
         },
         onPausedUI: () => {
-          $("btnStart").disabled = false;
-          $("btnStart").textContent = "Resume";
-          $("btnPause").disabled = true;
+          updatePlaybackControls();
         },
         // Filled in by runToCompletion({ visual: true }) — onFinished above
         // calls this once when the sim completes.
         onAgentFinish: null,
       };
 
+      /* ---------- URL config ----------
+       * Shareable links can open directly to a preset:
+       *   tcp-inflight.html?preset=cold-iw10
+       * A few common overrides are accepted so recorded videos can link to
+       * the exact scenario they show:
+       *   ?scenario=warm-iw3500-rwnd-warm&autoplay=1
+       *   ?preset=warm-iw3500-rwnd-warm&autoplay=1
+       */
+      const URL_SCENARIOS = {
+        "cold-iw10": {
+          mode: "tcp",
+          ccMode: "cubic",
+          handshake: true,
+          initialCwndSeg: 10,
+          rtt: 31,
+          mss: 1298,
+          payloadMb: 5,
+          routerReadMbps: 10000,
+          routerWriteMbps: 1000,
+          linkBwMbps: 1000,
+          queueKB: 5120,
+          lossPct: 0,
+          wmemKB: 16384,
+          rmemKB: 9825.5,
+          appWriteMbps: 10000,
+          appReadMbps: 10000,
+          simSpeed: 0.025,
+        },
+        "warm-iw10": {
+          mode: "tcp",
+          ccMode: "cubic",
+          handshake: false,
+          initialCwndSeg: 10,
+          rtt: 31,
+          mss: 1298,
+          payloadMb: 5,
+          routerReadMbps: 10000,
+          routerWriteMbps: 1000,
+          linkBwMbps: 1000,
+          queueKB: 5120,
+          lossPct: 0,
+          wmemKB: 16384,
+          rmemKB: 9825.5,
+          appWriteMbps: 10000,
+          appReadMbps: 10000,
+          simSpeed: 0.025,
+        },
+        "warm-iw3500-rwnd-warm": {
+          mode: "tcp",
+          ccMode: "cubic",
+          handshake: false,
+          initialCwndSeg: 3500,
+          rtt: 31,
+          mss: 1298,
+          payloadMb: 5,
+          routerReadMbps: 10000,
+          routerWriteMbps: 1000,
+          linkBwMbps: 1000,
+          queueKB: 5120,
+          lossPct: 0,
+          wmemKB: 16384,
+          rmemKB: 9825.5,
+          appWriteMbps: 10000,
+          appReadMbps: 10000,
+          simSpeed: 0.025,
+        },
+      };
+
+      function truthyParam(value) {
+        if (value == null) return false;
+        return /^(1|true|yes|on)$/i.test(value);
+      }
+
+      function firstUrlNumber(qs, names) {
+        for (const name of names) {
+          const raw = qs.get(name);
+          if (raw == null || raw === "") continue;
+          const value = parseFloat(raw);
+          if (!isNaN(value)) return value;
+        }
+        return null;
+      }
+
+      function applyUrlKnobConfig(config) {
+        if (!config || typeof config !== "object") return;
+        if (config.mode === "tcp" || config.mode === "udp") setMode(config.mode);
+        if (config.ccMode === "custom" || config.ccMode === "cubic" || config.ccMode === "bbr") {
+          sim.ccMode = config.ccMode;
+          applyCcModeUi();
+        }
+        if (typeof config.handshake === "boolean") {
+          sim.handshake = config.handshake;
+          applyHandshakeUi();
+        }
+        if (typeof config.rtt === "number") {
+          sim.rtt = config.rtt;
+          setKnob("rtt", "rttN", config.rtt);
+        }
+        if (typeof config.mss === "number") {
+          sim.mss = Math.round(config.mss);
+          setKnob("mss", "mssN", sim.mss);
+        }
+        if (typeof config.payloadMb === "number") {
+          $("payloadN").value = config.payloadMb;
+          $("payload").value = payloadMBToSlider(config.payloadMb);
+          applyPayloadMB(config.payloadMb);
+        }
+        if (typeof config.routerReadMbps === "number") {
+          sim.routerReadMbps = config.routerReadMbps;
+          $("routerReadN").value = config.routerReadMbps;
+          $("routerRead").value = linkbwMbpsToSlider(config.routerReadMbps);
+        }
+        if (typeof config.routerWriteMbps === "number") {
+          sim.routerWriteMbps = config.routerWriteMbps;
+          $("routerWriteN").value = config.routerWriteMbps;
+          $("routerWrite").value = linkbwMbpsToSlider(config.routerWriteMbps);
+        }
+        if (typeof config.linkBwMbps === "number") {
+          sim.linkBwMbps = config.linkBwMbps;
+          $("linkbwN").value = config.linkBwMbps;
+          $("linkbw").value = linkbwMbpsToSlider(config.linkBwMbps);
+        }
+        if (typeof config.queueKB === "number") {
+          sim.queueSizeBytes = config.queueKB * 1024;
+          $("queueN").value = config.queueKB;
+          $("queue").value = queueKBToSlider(config.queueKB);
+        }
+        if (typeof config.lossPct === "number") {
+          sim.lossPct = config.lossPct;
+          setKnob("loss", "lossN", config.lossPct);
+        }
+        if (typeof config.wmemKB === "number") {
+          sim.wmemSize = config.wmemKB * 1024;
+          $("wmemN").value = config.wmemKB;
+          $("wmem").value = bufKBToSlider(config.wmemKB);
+        }
+        if (typeof config.rmemKB === "number") {
+          sim.rmemSize = config.rmemKB * 1024;
+          $("rmemN").value = config.rmemKB;
+          $("rmem").value = bufKBToSlider(config.rmemKB);
+        }
+        if (typeof config.appWriteMbps === "number") {
+          sim.appWriteRateMbps = config.appWriteMbps;
+          setAppRate("appWrite", "appWriteN", config.appWriteMbps);
+        }
+        if (typeof config.appReadMbps === "number") {
+          sim.appReadRateMbps = config.appReadMbps;
+          setAppRate("appRead", "appReadN", config.appReadMbps);
+        }
+        if (typeof config.initialCwndSeg === "number") {
+          sim.initialCwndSeg = Math.round(config.initialCwndSeg);
+          $("initCwndN").value = sim.initialCwndSeg;
+          $("initCwnd").value = cwndSegToSlider(sim.initialCwndSeg);
+        }
+        if (typeof config.cwndSeg === "number") {
+          sim.cwndSeg = Math.round(config.cwndSeg);
+          $("cwndN").value = sim.cwndSeg;
+          $("cwnd").value = cwndSegToSlider(sim.cwndSeg);
+        }
+        if (typeof config.simSpeed === "number") {
+          const s = clamp(config.simSpeed, 0, 1);
+          sim.speed = s;
+          $("speedN").value = s.toFixed(3);
+          $("speed").value = speedToSlider(s);
+        }
+        updateAppRateHints();
+        recompute();
+      }
+
+      function applyUrlConfig() {
+        const qs = new URLSearchParams(window.location.search);
+        const preset = qs.get("preset") || qs.get("p");
+        const presetKey = preset && presets[preset] ? preset : "cold-iw10";
+
+        applyPreset(presetKey, false);
+        runner.setPresetTag && runner.setPresetTag(presetKey);
+
+        const cc = qs.get("cc") || qs.get("ccMode");
+        if (cc === "custom" || cc === "cubic" || cc === "bbr") {
+          sim.ccMode = cc;
+          applyCcModeUi();
+        }
+
+        const mode = qs.get("mode");
+        if (mode === "tcp" || mode === "udp") setMode(mode);
+
+        const handshake = qs.get("handshake");
+        if (handshake != null) {
+          const cold = /^(1|true|yes|on|cold)$/i.test(handshake);
+          const warm = /^(0|false|no|off|warm)$/i.test(handshake);
+          if (cold || warm) {
+            sim.handshake = cold;
+          applyHandshakeUi();
+          }
+        }
+
+        const scenario = qs.get("scenario") || qs.get("s");
+        if (scenario && URL_SCENARIOS[scenario]) applyUrlKnobConfig(URL_SCENARIOS[scenario]);
+
+        const overrides = {};
+        const rtt = firstUrlNumber(qs, ["rtt", "rttMs"]);
+        const mss = firstUrlNumber(qs, ["mss"]);
+        const payloadMb = firstUrlNumber(qs, ["payloadMb", "payloadMB", "payload"]);
+        const initialCwndSeg = firstUrlNumber(qs, ["initcwnd", "initCwnd", "initialCwndSeg", "iw"]);
+        const cwndSeg = firstUrlNumber(qs, ["cwnd", "cwndSeg"]);
+        const routerReadMbps = firstUrlNumber(qs, ["routerReadMbps", "routerRead", "routerInMbps", "routerIn"]);
+        const routerWriteMbps = firstUrlNumber(qs, ["routerWriteMbps", "routerWrite", "routerOutMbps", "routerOut"]);
+        const linkBwMbps = firstUrlNumber(qs, ["linkBwMbps", "linkbw", "bw"]);
+        const queueKB = firstUrlNumber(qs, ["queueKB", "queueKb", "queue"]);
+        const lossPct = firstUrlNumber(qs, ["lossPct", "loss"]);
+        const wmemKB = firstUrlNumber(qs, ["wmemKB", "wmem"]);
+        const rmemKB = firstUrlNumber(qs, ["rmemKB", "rmem"]);
+        const appWriteMbps = firstUrlNumber(qs, ["appWriteMbps", "appWrite"]);
+        const appReadMbps = firstUrlNumber(qs, ["appReadMbps", "appRead"]);
+        const simSpeed = firstUrlNumber(qs, ["speed", "simSpeed"]);
+        if (rtt != null) overrides.rtt = rtt;
+        if (mss != null) overrides.mss = mss;
+        if (payloadMb != null) overrides.payloadMb = payloadMb;
+        if (initialCwndSeg != null) overrides.initialCwndSeg = initialCwndSeg;
+        if (cwndSeg != null) overrides.cwndSeg = cwndSeg;
+        if (routerReadMbps != null) overrides.routerReadMbps = routerReadMbps;
+        if (routerWriteMbps != null) overrides.routerWriteMbps = routerWriteMbps;
+        if (linkBwMbps != null) overrides.linkBwMbps = linkBwMbps;
+        if (queueKB != null) overrides.queueKB = queueKB;
+        if (lossPct != null) overrides.lossPct = lossPct;
+        if (wmemKB != null) overrides.wmemKB = wmemKB;
+        if (rmemKB != null) overrides.rmemKB = rmemKB;
+        if (appWriteMbps != null) overrides.appWriteMbps = appWriteMbps;
+        if (appReadMbps != null) overrides.appReadMbps = appReadMbps;
+        if (simSpeed != null) overrides.simSpeed = simSpeed;
+        applyUrlKnobConfig(overrides);
+
+        resetSim();
+
+        if (truthyParam(qs.get("autoplay")) || truthyParam(qs.get("start"))) {
+          runner.startRaf();
+          updatePlaybackControls();
+        }
+      }
+
       /* ---------- init ---------- */
-      applyPreset("healthy", false);
-      runner.setPresetTag && runner.setPresetTag("healthy");
-      applyCcModeUi(); // sync Initial-cwnd row + cc-phase HUD row visibility
-      resetSim();
+      applyUrlConfig();
       resize();
       // Bind the agent API to this page's sim + runner so window.SimAgent works.
       if (window.SimAgent && typeof window.SimAgent.__bind === "function") {

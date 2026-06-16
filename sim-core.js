@@ -55,145 +55,51 @@
    * scenario is), watch (what to look at on screen), expect (rough numbers
    * the run should land on, measured with sim-cli).
    */
+  const H100_BLOG_PATH = {
+    rtt: 31,
+    cwndSeg: 10,
+    mss: 1298,
+    payloadMb: 5,
+    lossPct: 0,
+    wmemKB: 16384,
+    rmemKB: 9825.5,
+    appWriteMbps: 10000,
+    appReadMbps: 10000,
+    routerReadMbps: 10000,
+    routerWriteMbps: 1000,
+    linkBwMbps: 1000,
+    queueKB: 5120,
+    ccMode: "cubic",
+  };
+
   const presets = {
-    healthy: {
-      name: "Healthy path",
-      story: "A well-provisioned broadband path: moderate RTT, ample router buffer, near-zero loss. TCP at its best.",
-      watch: "cwnd doubles each RTT (slow-start), Hystart exits near BDP, then the link stays saturated to the end.",
-      expect: "10 MB in ~0.7 s · ~115 Mbps avg · 0 drops",
-      rtt: 40,
-      cwndSeg: 685,
-      mss: 1460,
-      payloadMb: 10,
-      lossPct: 0.001,
-      wmemKB: 4096,
-      rmemKB: 4096,
-      appWriteMbps: 0,
-      appReadMbps: 0,
-      linkBwMbps: 200,
-      // ~2x BDP (BDP = 200 Mbps x 40 ms = 1 MB) so slow-start bursts are
-      // absorbed without drops.
-      queueKB: 2000,
-      ccMode: "cubic",
+    "cold-iw10": {
+      ...H100_BLOG_PATH,
+      name: "1. Cold TCP, IW10",
+      story: "A fresh TCP connection starts with the three-way handshake and the default 10-packet initial congestion window.",
+      watch: "The SYN, SYN-ACK, and ACK happen before data starts; after that, cubic still has to ramp cwnd from 10 packets.",
+      expect: "5 MB in ~353 ms in the sim · worker transport p50 ~347 ms",
+      handshake: true,
       initCwndSeg: 10,
     },
-    "cwnd-buildup": {
-      name: "Cwnd buildup (long fat pipe)",
-      story: "Intercontinental path: 150 ms RTT and a fast link mean a huge BDP. A cold connection spends most of the transfer just ramping cwnd up.",
-      watch: "Many RTTs of slow-start before the pipe fills - the link sits idle while cwnd builds. Compare with the warm-start preset.",
-      expect: "20 MB in ~2.0 s · ~80 Mbps avg on a 300 Mbps link",
-      rtt: 150,
-      cwndSeg: 3852,
-      mss: 1460,
-      payloadMb: 20,
-      lossPct: 0,
-      wmemKB: 16384,
-      rmemKB: 16384,
-      appWriteMbps: 0,
-      appReadMbps: 0,
-      linkBwMbps: 300,
-      // ~2x BDP (BDP = 300 Mbps x 150 ms = 5.6 MB).
-      queueKB: 11000,
-      ccMode: "cubic",
+    "warm-iw10": {
+      ...H100_BLOG_PATH,
+      name: "2. Warm TCP, IW10",
+      story: "The TCP connection is already open, so the request skips the handshake, but the sender still starts from a small 10-packet initial window.",
+      watch: "Data starts immediately, saving about one RTT, while the rest of the transfer still spends several RTTs growing cwnd.",
+      expect: "5 MB in ~326 ms in the sim · worker transport p50 ~303 ms",
+      handshake: false,
       initCwndSeg: 10,
     },
-    "warm-start": {
-      name: "Good initial cwnd (warm start)",
-      story: "Same long fat pipe as cwnd-buildup, but the connection starts with cwnd already at BDP - like a warmed/reused connection or a tuned initcwnd.",
-      watch: "The first flight fills the whole pipe; the transfer finishes in a handful of RTTs instead of a long ramp.",
-      expect: "20 MB in ~0.8 s · ~215 Mbps avg · 2.6x faster than cold",
-      rtt: 150,
-      cwndSeg: 3852,
-      mss: 1460,
-      payloadMb: 20,
-      lossPct: 0,
-      wmemKB: 16384,
-      rmemKB: 16384,
-      appWriteMbps: 0,
-      appReadMbps: 0,
-      linkBwMbps: 300,
-      // Big enough to absorb the initial 5.6 MB IW burst without drops.
-      queueKB: 11000,
-      ccMode: "cubic",
-      initCwndSeg: 3852,
-    },
-    congestion: {
-      name: "Congestion (shallow buffer)",
-      story: "The bottleneck router has a tiny buffer. Slow-start bursts overflow it long before the pipe is full: drops, dup-ACKs, fast retransmit, cubic sawtooth.",
-      watch: "Red drops fall out of the router bucket; cwnd gets cut 0.7x on each loss event and regrows along the cubic curve.",
-      expect: "5 MB in ~8 s · ~5 Mbps on a 150 Mbps link · 100+ drops",
-      rtt: 60,
-      cwndSeg: 770,
-      mss: 1460,
-      payloadMb: 5,
-      lossPct: 0,
-      wmemKB: 4096,
-      rmemKB: 4096,
-      appWriteMbps: 0,
-      appReadMbps: 0,
-      linkBwMbps: 150,
-      // ~0.08x BDP (BDP = 150 Mbps x 60 ms = 1.1 MB) - classic under-buffered switch.
-      queueKB: 96,
-      ccMode: "cubic",
-      initCwndSeg: 10,
-    },
-    bufferbloat: {
-      name: "Bufferbloat (oversized buffer)",
-      story: "A sender window far beyond BDP meets a router buffer 20x the BDP. Nothing drops, so nothing tells the sender to slow down - the queue just sits full.",
-      watch: "The router bucket stays slammed near capacity for the whole run: a standing queue adding ~400 ms of dwell to every packet. Switch cc to bbr and the queue empties.",
-      expect: "10 MB in ~1.7 s · link saturated · ~450 ms standing queue dwell",
-      rtt: 30,
-      cwndSeg: 2000,
-      mss: 1460,
-      payloadMb: 10,
-      lossPct: 0,
-      wmemKB: 4096,
-      rmemKB: 4096,
-      appWriteMbps: 0,
-      appReadMbps: 0,
-      linkBwMbps: 50,
-      // ~22x BDP (BDP = 50 Mbps x 30 ms = 188 KB).
-      queueKB: 4096,
-      ccMode: "custom",
-      initCwndSeg: 10,
-    },
-    lossy: {
-      name: "Lossy link (radio / Wi-Fi)",
-      story: "2% random packet loss that has nothing to do with congestion. Cubic can't tell the difference and keeps cutting cwnd anyway.",
-      watch: "Most runs collapse orders of magnitude below the link rate (Mathis: throughput scales with 1/sqrt(loss)); an occasional short run gets lucky - that variance IS the lesson. Switch cc to bbr: it models bandwidth instead of reacting to loss, and sails through every time.",
-      expect: "cubic: usually ~1 Mbps (a lucky run escapes at ~25) · bbr: ~25 Mbps every time",
-      rtt: 50,
-      cwndSeg: 428,
-      mss: 1460,
-      payloadMb: 2,
-      lossPct: 2,
-      wmemKB: 4096,
-      rmemKB: 4096,
-      appWriteMbps: 0,
-      appReadMbps: 0,
-      linkBwMbps: 100,
-      queueKB: 1024,
-      ccMode: "cubic",
-      initCwndSeg: 10,
-    },
-    "slow-receiver": {
-      name: "Slow receiver (flow control)",
-      story: "The network is fast but the receiving app drains its socket at only 40 Mbps. The receive buffer fills, the recv window collapses, and flow control - not congestion control - sets the pace.",
-      watch: "The receive buffer fills and turns red, the recv window drops toward zero, zero-window time accumulates, and goodput pins at the app read rate no matter what cwnd wants.",
-      expect: "5 MB in ~1.1 s · pinned at ~37 Mbps by the reader",
-      rtt: 30,
-      cwndSeg: 1000,
-      mss: 1460,
-      payloadMb: 5,
-      lossPct: 0.001,
-      wmemKB: 4096,
-      rmemKB: 256,
-      appWriteMbps: 0,
-      appReadMbps: 40,
-      linkBwMbps: 200,
-      queueKB: 2048,
-      ccMode: "cubic",
-      initCwndSeg: 10,
+    "warm-iw3500-rwnd-warm": {
+      ...H100_BLOG_PATH,
+      name: "3. Warm TCP, IW3500 + rwnd warm",
+      story: "The connection is warm, the sender starts near the path BDP, and the receiver window has already been opened by a prior large upload.",
+      watch: "The first flight can fill the pipe immediately; there is no handshake delay and no small receive-window bottleneck.",
+      expect: "5 MB in ~78 ms in the sim · worker transport after 10 MB prewarm ~53-58 ms",
+      handshake: false,
+      initCwndSeg: 3500,
+      cwndSeg: 3500,
     },
   };
 
@@ -244,6 +150,7 @@
 
       // Generic sender pacing (used by all modes; only BBR advances it)
       lastSenderEmitTime: 0,                 // when sender wire clock will next be free
+      lastRouterReadTime: 0,                 // when router ingress clock will next be free
 
       // Model the TCP 3-way handshake (SYN → SYN-ACK → ACK). When set, the
       // first data segment leaves exactly one RTT after t=0: SYN reaches the
@@ -258,6 +165,8 @@
       payloadBytes: 10 * 1024 * 1024,
       speed: 0.02,
       lossPct: 0,
+      routerReadMbps: 10000,
+      routerWriteMbps: 1000,
       linkBwMbps: 1000,
 
       // bottleneck queue
@@ -267,13 +176,13 @@
       // kernel buffers
       wmemSize: 4096 * 1024,
       wmemUsed: 0,
-      appWriteRateMbps: 0,
+      appWriteRateMbps: 200,
       appNextWriteIdx: 0,
       appWriteBlockedMs: 0,
       rmemSize: 4096 * 1024,
       rmemUsed: 0,
       rmemSet: null,
-      appReadRateMbps: 0,
+      appReadRateMbps: 200,
       appReadResidualBytes: 0,
       zeroWindowMs: 0,
 
@@ -331,6 +240,8 @@
     sim.rmemSize = Math.round(p.rmemKB * 1024);
     sim.appWriteRateMbps = p.appWriteMbps;
     sim.appReadRateMbps = p.appReadMbps;
+    sim.routerReadMbps = p.routerReadMbps != null ? p.routerReadMbps : 10000;
+    sim.routerWriteMbps = p.routerWriteMbps != null ? p.routerWriteMbps : p.linkBwMbps;
     sim.linkBwMbps = p.linkBwMbps;
     const queueKB = p.queueKB != null ? p.queueKB : 1024;
     sim.queueSizeBytes = Math.round(queueKB * 1024);
@@ -402,6 +313,7 @@
     sim.bbr_cwnd_seg = Math.max(4, sim.initialCwndSeg);
     sim.bbr_prevState = null;
     sim.lastSenderEmitTime = 0;
+    sim.lastRouterReadTime = 0;
     if (sim.mode === "tcp" && (sim.ccMode === "cubic" || sim.ccMode === "bbr")) {
       sim.cwndSeg = sim.initialCwndSeg;
     }
@@ -432,6 +344,11 @@
       ? sim.bbr_cwnd_seg
       : sim.cwndSeg;
     return Math.min(cwnd, advertisedRwndSeg(sim));
+  }
+  function effectiveDrainMbps(sim) {
+    const link = Math.max(1, sim.linkBwMbps || 1);
+    const routerWrite = Math.max(1, sim.routerWriteMbps || link);
+    return Math.min(link, routerWrite);
   }
   function inflightSegCount(sim) {
     let n = 0;
@@ -475,7 +392,10 @@
     const preTravelMs = sim.rtt / 4;
     const postTravelMs = sim.rtt / 4;
 
-    const serializeMs = (sim.mss * 8) / (sim.linkBwMbps * 1000);
+    const routerReadMbps = Math.max(1, sim.routerReadMbps || 10000);
+    const routerReadSerializeMs = (sim.mss * 8) / (routerReadMbps * 1000);
+    const drainMbps = effectiveDrainMbps(sim);
+    const serializeMs = (sim.mss * 8) / (drainMbps * 1000);
 
     // Generic sender wire clock. For BBR, the sender paces packets at the
     // current bbr_pacingRate_BytesPerMs so emissions are evenly spaced rather
@@ -498,14 +418,18 @@
     }
 
     const pushedAt = senderEmitAt;
-    const enqueuedAt = pushedAt + preTravelMs;
+    const enqueuedAt = Math.max(
+      pushedAt + preTravelMs,
+      sim.lastRouterReadTime + routerReadSerializeMs
+    );
+    sim.lastRouterReadTime = enqueuedAt;
 
     // Queue-overflow check measures depth at the moment the packet ARRIVES at
     // the queue (= enqueuedAt), not at sendSegment time. Otherwise bursts
     // inside a single step see a phantom RTT/4 × link_bw of "queue" that's
     // actually just pre-queue travel time, which over-rejects packets.
     const queueWaitMs = Math.max(0, sim.lastPacketLeaveTime - enqueuedAt);
-    const queuedBytes = queueWaitMs * sim.linkBwMbps * 125;
+    const queuedBytes = queueWaitMs * drainMbps * 125;
 
     if (
       sim.mode === "tcp" &&
@@ -513,8 +437,8 @@
       sim.ccPhase === "slow-start"
     ) {
       // BDP-based Hystart: exit when cwnd_bytes > link's BDP.
-      // BDP_bytes = link_bw_Mbps * 1e6 * RTT_ms / 1000 / 8 = link_bw * RTT * 125
-      const bdpBytes = sim.linkBwMbps * sim.rtt * 125;
+      // BDP_bytes = effective_drain_Mbps * 1e6 * RTT_ms / 1000 / 8 = drain * RTT * 125
+      const bdpBytes = drainMbps * sim.rtt * 125;
       if (sim.cwndSeg * sim.mss > bdpBytes) {
         sim.ssthresh = Math.max(2, sim.cwndSeg);
         sim.wmax = sim.cwndSeg;
@@ -797,14 +721,11 @@
     );
     const wmemFree = Math.max(0, sim.wmemSize - sim.wmemUsed);
     if (bytesRemainingToWrite > 0) {
-      let canWrite;
-      if (sim.appWriteRateMbps === 0) {
-        canWrite = Math.min(wmemFree, bytesRemainingToWrite);
-      } else {
-        const bytesPerStep =
-          (sim.appWriteRateMbps * 1e6 * dtSim) / 1000 / 8;
-        canWrite = Math.min(wmemFree, bytesRemainingToWrite, bytesPerStep);
-      }
+      const bytesPerStep =
+        sim.appWriteRateMbps > 0
+          ? (sim.appWriteRateMbps * 1e6 * dtSim) / 1000 / 8
+          : 0;
+      const canWrite = Math.min(wmemFree, bytesRemainingToWrite, bytesPerStep);
       if (canWrite >= sim.mss) {
         const segsToWrite = Math.floor(canWrite / sim.mss);
         const lastSeg = Math.min(
@@ -990,14 +911,10 @@
     // Receiver app drain
     if (sim.rmemUsed > 0 && eligibleForDrainCount > 0) {
       let drainBytes;
-      if (sim.appReadRateMbps === 0) {
-        drainBytes =
-          eligibleForDrainCount * sim.mss + sim.appReadResidualBytes;
-      } else {
-        drainBytes =
-          (sim.appReadRateMbps * 1e6 * dtSim) / 1000 / 8 +
-          sim.appReadResidualBytes;
-      }
+      drainBytes =
+        (sim.appReadRateMbps > 0
+          ? (sim.appReadRateMbps * 1e6 * dtSim) / 1000 / 8
+          : 0) + sim.appReadResidualBytes;
       let segsToDrain = Math.min(
         Math.floor(drainBytes / sim.mss),
         eligibleForDrainCount,
@@ -1137,6 +1054,7 @@
     advertisedRwndBytes,
     advertisedRwndSeg,
     effectiveWindowSeg,
+    effectiveDrainMbps,
     inflightSegCount,
     handshakeMs,
     inHandshake,

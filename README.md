@@ -40,24 +40,20 @@ so you can watch individual packets).
 
 ## Scenario presets
 
-Each preset is a self-contained lesson with calibrated knobs:
+Each preset is one of the three blog scenarios with calibrated knobs:
 
 | Preset | The lesson | Expected outcome |
 |---|---|---|
-| **Healthy path** | What TCP looks like when everything is right | 10 MB in ~0.7 s, no drops |
-| **Cwnd buildup (long fat pipe)** | Cold connections waste a long ramp-up on high-BDP paths | 20 MB in ~2.0 s on a 300 Mbps link |
-| **Good initial cwnd (warm start)** | Same path, cwnd starts at BDP — the ramp disappears | Same 20 MB in ~0.8 s (2.6× faster) |
-| **Congestion (shallow buffer)** | Under-buffered bottleneck: drops, sawtooth, low utilization | 5 MB crawls in ~8 s at ~5 Mbps |
-| **Bufferbloat (oversized buffer)** | Window ≫ BDP + huge buffer = a standing queue, no signal to slow down | Link saturated but ~450 ms of queue dwell |
-| **Lossy link (radio / Wi-Fi)** | Random loss isn't congestion, but Cubic reacts as if it were | Cubic: usually ~1 Mbps. Switch to BBR: ~25 Mbps, every time |
-| **Slow receiver (flow control)** | The receiver's app, not the network, sets the pace | Goodput pinned at the app read rate |
+| **1. Cold TCP, IW10** | Fresh TCP connection, default 10-packet initial window | 5 MB in ~353 ms in the sim |
+| **2. Warm TCP, IW10** | Reused TCP connection, default 10-packet initial window | 5 MB in ~326 ms in the sim |
+| **3. Warm TCP, IW3500 + rwnd warm** | Reused TCP connection, aggressive initial window, receive window already opened by a prior large upload | 5 MB in ~78 ms in the sim |
 
-The most fun comparisons: run **cwnd-buildup** then **warm-start**, and run **lossy** with cubic
-then with bbr.
+The comparison is the blog progression: remove the handshake, then raise the initial window after
+warming the receiver window.
 
 ## Knobs
 
-Everything is adjustable live: RTT, MSS, payload size, link bandwidth, router buffer size, random
+Everything is adjustable live: RTT, MSS, payload size, link bandwidth, router read/write rates, router buffer size, random
 loss %, congestion-control algorithm (custom fixed-cwnd / cubic / bbr), initial cwnd, send/receive buffer
 sizes, app read/write rates, and a handshake toggle — warm (reused connection, data at t=0) vs cold
 (full 3-way handshake: SYN/SYN-ACK animate across the band and the first data packet leaves one full
@@ -72,10 +68,17 @@ The page exposes `window.SimAgent` for scripted experiments — configure runs, 
 deterministically (no animation) or visually, and read structured results:
 
 ```js
-SimAgent.applyPreset("lossy");
-SimAgent.setCcMode("bbr");
+SimAgent.applyPreset("warm-iw3500-rwnd-warm");
 await SimAgent.runToCompletion({ visual: false });
 SimAgent.getSummary();   // { elapsed_sim_ms, goodput_Mbps, retransmits_total, ... }
+```
+
+You can also link directly to a preset:
+
+```text
+http://localhost:8080/tcp-inflight.html?preset=cold-iw10
+http://localhost:8080/tcp-inflight.html?preset=warm-iw10
+http://localhost:8080/tcp-inflight.html?preset=warm-iw3500-rwnd-warm
 ```
 
 See [llms.txt](llms.txt) for the full API reference (state snapshots, 10 Hz traces, discrete
@@ -87,8 +90,8 @@ Puppeteer script that drives the page end to end.
 The simulation core is pure JavaScript and also runs in Node:
 
 ```bash
-node sim-cli.js --preset congestion --seconds 10        # CSV trace + summary
-node sim-cli.js --preset lossy --cc bbr --seconds 10
+node sim-cli.js --preset cold-iw10 --seconds 5          # CSV trace + summary
+node sim-cli.js --preset warm-iw3500-rwnd-warm --seconds 5
 node sim-cli.js --help
 ```
 
