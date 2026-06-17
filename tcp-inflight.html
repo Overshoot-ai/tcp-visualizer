@@ -1125,6 +1125,20 @@
             <input id="initCwndN" type="number" min="1" max="65536" step="1" value="10" />
           </div>
 
+          <div class="section-head tcp-only" id="rowCubicPacing" style="display:none" title="Cubic pacing — Keep Cubic's cwnd and loss response, but spread sends at roughly cwnd / RTT × gain instead of emitting a cwnd-sized burst immediately. Useful for comparing burst loss against paced loss-based sending.">
+            <h2 class="kw" data-term="cubic-pacing">Cubic pacing</h2>
+            <div class="mode-toggle tcp-only cc-toggle inline">
+              <button id="btnCubicPaceOff" class="active" data-term="cubic-pacing">off</button>
+              <button id="btnCubicPaceOn" data-term="cubic-pacing">on</button>
+            </div>
+          </div>
+
+          <div class="knob tcp-only" id="rowCubicPacingGain" style="display:none" title="Cubic pacing gain — Sender pacing rate = cwnd_bytes / RTT × gain. 1.0 spreads exactly one congestion window over one RTT; values above 1.0 probe more aggressively and can still build a queue.">
+            <label for="cubicPacingGain" class="kw" data-term="cubic-pacing">Pacing gain</label>
+            <input id="cubicPacingGain" type="range" min="0.5" max="3" step="0.05" value="1.2" />
+            <input id="cubicPacingGainN" type="number" min="0.5" max="3" step="0.05" value="1.2" />
+          </div>
+
           <h2 style="margin-top:6px">Network</h2>
 
           <div class="knob" title="MSS (maximum segment size, bytes) — Max data bytes per packet — 'segment' is TCP's formal name for a packet. Roughly path MTU minus IP/TCP headers. Typical Ethernet MSS is 1460. Tunnels, overlays, and LBs often lower it to ~1298–1398. Smaller MSS means more packets per payload and more per-packet overhead.">
@@ -1250,6 +1264,7 @@
         effectiveWindowSeg: _effectiveWindowSeg,
         effectiveDrainMbps: _effectiveDrainMbps,
         inflightSegCount: _inflightSegCount,
+        queuedBytesNow: _queuedBytesNow,
         presets,
       } = SC;
       const advertisedRwndBytes = () => _advertisedRwndBytes(sim);
@@ -1257,6 +1272,7 @@
       const effectiveWindowSeg = () => _effectiveWindowSeg(sim);
       const effectiveDrainMbps = () => _effectiveDrainMbps(sim);
       const inflightSegCount = () => _inflightSegCount(sim);
+      const queuedBytesNow = () => _queuedBytesNow(sim);
 
       /* ---------- helpers ---------- */
       const $ = (id) => document.getElementById(id);
@@ -1307,7 +1323,7 @@
         },
         "queue-drop": {
           title: "Router drop (bottleneck overflow)",
-          body: "Packet dropped at the bottleneck router because its buffer was full on arrival. The dominant loss mechanism in real networks under load.\n\nHappens whenever incoming rate exceeds outbound rate at that router. Two real-world ways that condition arises:\n\n  1. The downstream link is genuinely slow (one sender saturates it).\n  2. Many flows converge on a fast link and their combined traffic exceeds its capacity.\n\nMathematically identical — same overflow, same drop. Cubic was designed for this: when a burst of drops arrives, it cuts cwnd × 0.7 once (via fast retransmit + recovery) and continues, instead of going back to slow-start.",
+          body: "Packet dropped at the bottleneck router because its buffer was full on arrival. The dominant loss mechanism in real networks under load.\n\nHappens whenever incoming rate exceeds outbound rate at that router. Two real-world ways that condition arises:\n\n  1. The downstream link is genuinely slow (one sender saturates it).\n  2. Many flows converge on a fast link and their combined traffic exceeds its capacity.\n\nMathematically identical — same overflow, same drop. Mild Cubic loss uses fast retransmit and recovery: it cuts cwnd × 0.7 once and continues. Severe loss, especially dropped retransmits, falls into RTO and restarts from a one-packet loss window.",
         },
         "router-read": {
           title: "router read (Mbps)",
@@ -1379,7 +1395,7 @@
         },
         retransmits: {
           title: "Retransmits",
-          body: "*TCP only — UDP packets lost stay lost.* Count of packets re-sent after the original was dropped (loss %). Each retransmit takes one RTT timeout in this sim. Visible as yellow dots on the band.",
+          body: "*TCP only — UDP packets lost stay lost.* Count of packets re-sent after the original was dropped (loss %). Timer-based retransmits use the sim's RTO floor rather than firing after a single RTT. Visible as yellow dots on the band.",
         },
         mode: {
           title: "Transport mode (TCP / UDP)",
@@ -1421,6 +1437,10 @@
           title: "TCP Cubic",
           body: "RFC 8312 congestion control. Window grows via a cubic curve cwnd(t) = C·(t − K)³ + W_max where W_max is the cwnd at the last loss. C = 0.4, β = 0.7. Concave growth at first (slow recovery to old peak), then convex growth (aggressive probing) past it. Designed for high-BDP paths where AIMD's linear growth is too slow.",
         },
+        "cubic-pacing": {
+          title: "Cubic pacing",
+          body: "Optional sender pacing for Cubic. The cwnd algorithm stays Cubic, but packets are spaced at cwnd_bytes / RTT × pacing_gain instead of emitted as one immediate burst. Pacing reduces burst drops in shallow buffers; gain above 1.0 still probes for extra capacity and can build queue.",
+        },
         "initial-cwnd": {
           title: "Initial cwnd (IW)",
           body: "The starting cwnd in packets when a TCP connection opens. RFC 6928 standardized 10 packets (~14 KB at MSS 1460) in 2013, replacing the older IW=3. Larger IW means slow-start finishes faster and the first request completes quicker, especially for small payloads on high-RTT paths.",
@@ -1443,7 +1463,7 @@
         },
         rto: {
           title: "RTO (Retransmission Timeout)",
-          body: "Severe loss path: when the retransmit timer fires before any dup-ACK signal arrived (e.g., burst loss, last packet lost, path collapse), cubic resets cwnd to the initial cwnd and restarts slow-start. Reserved for catastrophic loss patterns.",
+          body: "Severe loss path: when the retransmit timer fires before recovery can repair the hole (e.g., burst loss, last packet lost, dropped retransmit, path collapse), cubic resets cwnd to a one-packet loss window and restarts slow-start. This sim uses a fixed minimum timeout floor instead of full SRTT/variance tracking.",
         },
         "dup-acks": {
           title: "Duplicate ACKs",
@@ -1570,6 +1590,8 @@
         "router write": "router-write",
         "link bw": "router-write",
         "link bandwidth": "router-write",
+        "pacing gain": "cubic-pacing",
+        "cubic pacing": "cubic-pacing",
         "initial cwnd": "initial-cwnd",
         "init cwnd": "initial-cwnd",
         "initcwnd": "initial-cwnd",
@@ -1744,6 +1766,7 @@
         // them into the cc toggle, the Init-cwnd knob, and row visibility.
         $("initCwndN").value = sim.initialCwndSeg;
         $("initCwnd").value = cwndSegToSlider(sim.initialCwndSeg);
+        setKnob("cubicPacingGain", "cubicPacingGainN", sim.cubicPacingGain);
         applyCcModeUi();
         // applyPresetToSim also reset sim.handshake; mirror the toggle.
         applyHandshakeUi();
@@ -2246,6 +2269,18 @@
       // "custom" keeps cwnd at the user-set knob value (today's behavior).
       // "cubic" runs RFC 8312 TCP Cubic: slow-start, MD on loss, cubic growth.
       // Toggling either way calls resetSim() so the run starts from a clean state.
+      function applyCubicPacingUi() {
+        const cubic = sim.ccMode === "cubic";
+        const pacing = !!sim.cubicPacing;
+        const row = $("rowCubicPacing");
+        if (row) row.style.display = cubic ? "" : "none";
+        const gainRow = $("rowCubicPacingGain");
+        if (gainRow) gainRow.style.display = cubic && pacing ? "" : "none";
+        const off = $("btnCubicPaceOff");
+        const on = $("btnCubicPaceOn");
+        if (off) off.classList.toggle("active", !pacing);
+        if (on) on.classList.toggle("active", pacing);
+      }
       function applyCcModeUi() {
         const cubic = sim.ccMode === "cubic";
         const bbr = sim.ccMode === "bbr";
@@ -2274,6 +2309,7 @@
         if (cwndKnob) cwndKnob.classList.toggle("cwnd-locked", cwndAuto);
         $("cwnd").disabled = cwndAuto;
         $("cwndN").disabled = cwndAuto;
+        applyCubicPacingUi();
       }
       function setCcMode(mode) {
         sim.ccMode = (mode === "cubic" || mode === "bbr") ? mode : "custom";
@@ -2283,6 +2319,14 @@
       $("btnCcCustom").addEventListener("click", () => setCcMode("custom"));
       $("btnCcCubic").addEventListener("click", () => setCcMode("cubic"));
       $("btnCcBbr").addEventListener("click", () => setCcMode("bbr"));
+
+      function setCubicPacing(v) {
+        sim.cubicPacing = !!v;
+        applyCubicPacingUi();
+        resetSim();
+      }
+      $("btnCubicPaceOff").addEventListener("click", () => setCubicPacing(false));
+      $("btnCubicPaceOn").addEventListener("click", () => setCubicPacing(true));
 
       // Initial-cwnd knob: log-scaled same as cwnd (1 ↔ 5000 segs). Takes effect
       // on next reset (per the tooltip).
@@ -2301,6 +2345,10 @@
         n.addEventListener("input", fromNumber);
         n.addEventListener("change", fromNumber);
       })();
+
+      bindKnob("cubicPacingGain", "cubicPacingGainN", (v) => {
+        sim.cubicPacingGain = v;
+      });
 
       /* ---------- canvas / layout ---------- */
       const canvas = $("scene");
@@ -3135,10 +3183,7 @@
         $("sAcked").textContent = fmtBytes(Math.min(ackedBytes, sim.payloadBytes));
         $("sRtx").textContent = sim.retransmits.toString();
         $("sDrops").textContent = sim.drops.toString();
-        // Live queue depth: how far ahead the wire clock is booked, in bytes.
-        const queueWaitMsLive = Math.max(0, sim.lastPacketLeaveTime - sim.simTime);
-        const queuedBytesLive = queueWaitMsLive * effectiveDrainMbps() * 125;
-        const queueUsedKB = queuedBytesLive / 1024;
+        const queueUsedKB = queuedBytesNow() / 1024;
         const queueSizeKB = sim.queueSizeBytes / 1024;
         const queueUsedStr =
           queueUsedKB < 10 ? queueUsedKB.toFixed(1) : Math.round(queueUsedKB).toString();
@@ -3224,6 +3269,7 @@
           $("initCwndN").value = Math.round(seg);
           $("initCwnd").value = cwndSegToSlider(Math.round(seg));
         },
+        setCubicPacingGain: (gain) => setKnob("cubicPacingGain", "cubicPacingGainN", gain),
         setQueueKB: (kb) => {
           $("queueN").value = Math.round(kb);
           $("queue").value = queueKBToSlider(kb);
@@ -3251,7 +3297,9 @@
         applyPreset,
         setMode,
         setCcMode,
+        setCubicPacing,
         setHandshake,
+        applyCubicPacingUi,
         recompute,
         resetSim,
         draw,
@@ -3339,6 +3387,12 @@
         if (value == null) return false;
         return /^(1|true|yes|on)$/i.test(value);
       }
+      function booleanUrlParam(value) {
+        if (value == null) return null;
+        if (/^(1|true|yes|on)$/i.test(value)) return true;
+        if (/^(0|false|no|off)$/i.test(value)) return false;
+        return null;
+      }
 
       function firstUrlNumber(qs, names) {
         for (const name of names) {
@@ -3360,6 +3414,14 @@
         if (typeof config.handshake === "boolean") {
           sim.handshake = config.handshake;
           applyHandshakeUi();
+        }
+        if (typeof config.cubicPacing === "boolean") {
+          sim.cubicPacing = config.cubicPacing;
+          applyCubicPacingUi();
+        }
+        if (typeof config.cubicPacingGain === "number") {
+          sim.cubicPacingGain = config.cubicPacingGain;
+          setKnob("cubicPacingGain", "cubicPacingGainN", config.cubicPacingGain);
         }
         if (typeof config.rtt === "number") {
           sim.rtt = config.rtt;
@@ -3482,11 +3544,15 @@
         const appWriteMbps = firstUrlNumber(qs, ["appWriteMbps", "appWrite"]);
         const appReadMbps = firstUrlNumber(qs, ["appReadMbps", "appRead"]);
         const simSpeed = firstUrlNumber(qs, ["speed", "simSpeed"]);
+        const cubicPacing = booleanUrlParam(qs.get("cubicPacing") || qs.get("paceCubic") || qs.get("pacing"));
+        const cubicPacingGain = firstUrlNumber(qs, ["cubicPacingGain", "pacingGain", "paceGain"]);
         if (rtt != null) overrides.rtt = rtt;
         if (mss != null) overrides.mss = mss;
         if (payloadMb != null) overrides.payloadMb = payloadMb;
         if (initialCwndSeg != null) overrides.initialCwndSeg = initialCwndSeg;
         if (cwndSeg != null) overrides.cwndSeg = cwndSeg;
+        if (cubicPacing != null) overrides.cubicPacing = cubicPacing;
+        if (cubicPacingGain != null) overrides.cubicPacingGain = cubicPacingGain;
         if (routerReadMbps != null) overrides.routerReadMbps = routerReadMbps;
         if (routerWriteMbps != null) overrides.routerWriteMbps = routerWriteMbps;
         if (linkBwMbps != null) overrides.linkBwMbps = linkBwMbps;

@@ -60,8 +60,8 @@ warming the receiver window.
 ## Knobs
 
 Everything is adjustable live: RTT, MSS, payload size, link bandwidth, router read/write rates, router buffer size, random
-loss %, congestion-control algorithm (custom fixed-cwnd / cubic / bbr), initial cwnd, send/receive buffer
-sizes, app read/write rates, and a handshake toggle — warm (reused connection, data at t=0) vs cold
+loss %, congestion-control algorithm (custom fixed-cwnd / cubic / bbr), initial cwnd, optional Cubic pacing,
+send/receive buffer sizes, app read/write rates, and a handshake toggle — warm (reused connection, data at t=0) vs cold
 (full 3-way handshake: SYN/SYN-ACK animate across the band and the first data packet leaves one full
 RTT after start). Hover any knob for an explanation. Everything is
 glossaried: click any underlined term, any legend item, or any component on the canvas itself
@@ -124,9 +124,11 @@ The repo is a static site. On Vercel, no configuration is needed beyond the incl
 ## Fidelity notes
 
 This is a teaching model, not a packet-accurate network emulator. Simplifications worth knowing:
-one flow, one bottleneck; Cubic sends are ACK-clocked but unpaced (bursts hit the queue at line
-rate, so shallow-buffer scenarios are harsher than reality); Hystart exits slow-start exactly at
-BDP; the RTO model is simplified (no exponential backoff); BBR repairs losses (SACK-style: a
+one flow, one bottleneck; Cubic sends are ACK-clocked and unpaced by default (bursts hit the queue at line
+rate, so shallow-buffer scenarios are harsher than reality), with an optional simplified pacer at cwnd/RTT × gain;
+Hystart exits slow-start exactly at
+BDP; the RTO model is simplified (uses a fixed minimum timeout floor, no SRTT variance tracking or
+exponential backoff, restart from a one-packet loss window); BBR repairs losses (SACK-style: a
 segment with 3 ACKed segments above it is retransmitted immediately) but ignores them for rate
 control, as real BBRv1 does. The
 qualitative dynamics — ramp shapes, sawtooth, standing queues, window stalls — match what you would

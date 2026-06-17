@@ -47,6 +47,8 @@
   const BAND_RTT_MAX_MS = 300;
   const BAND_BW_MIN_MBPS = 50;
   const BAND_BW_MAX_MBPS = 500;
+  const DEFAULT_RTO_MIN_MS = 200;
+  const DEFAULT_CUBIC_PACING_GAIN = 1.2;
 
   /* ---------- presets ----------
    * Each preset is a self-contained classroom scenario. Beyond the model
@@ -68,6 +70,8 @@
     routerReadMbps: 10000,
     routerWriteMbps: 1000,
     linkBwMbps: 1000,
+    cubicPacing: false,
+    cubicPacingGain: DEFAULT_CUBIC_PACING_GAIN,
     queueKB: 5120,
     ccMode: "cubic",
   };
@@ -123,12 +127,15 @@
       lastLossSimTime: 0,
       ccPhase: "slow-start",
       cubicAnchored: false,  // set to true on first loss event; gates cubic vs linear AIMD in cong-avoid
+      cubicPacing: false,
+      cubicPacingGain: DEFAULT_CUBIC_PACING_GAIN,
 
       // Fast retransmit / fast recovery.
       dupAckCount: 0,
       inRecovery: false,
       recoveryHighSeq: 0,
       preLossCwnd: 0,
+      retransmitUntilIdx: 0,
 
       // BBR state machine
       bbr_state: "startup",                  // "startup" | "drain" | "probe_bw" | "probe_rtt"
@@ -168,6 +175,7 @@
       routerReadMbps: 10000,
       routerWriteMbps: 1000,
       linkBwMbps: 1000,
+      rtoMinMs: DEFAULT_RTO_MIN_MS,
 
       // bottleneck queue
       queueSizeBytes: 1024 * 1024,
@@ -243,6 +251,10 @@
     sim.routerReadMbps = p.routerReadMbps != null ? p.routerReadMbps : 10000;
     sim.routerWriteMbps = p.routerWriteMbps != null ? p.routerWriteMbps : p.linkBwMbps;
     sim.linkBwMbps = p.linkBwMbps;
+    sim.cubicPacing = !!p.cubicPacing;
+    sim.cubicPacingGain = p.cubicPacingGain != null
+      ? p.cubicPacingGain
+      : DEFAULT_CUBIC_PACING_GAIN;
     const queueKB = p.queueKB != null ? p.queueKB : 1024;
     sim.queueSizeBytes = Math.round(queueKB * 1024);
     // Scenario presets pick their own congestion-control mode and initial
@@ -295,6 +307,7 @@
     sim.inRecovery = false;
     sim.recoveryHighSeq = 0;
     sim.preLossCwnd = 0;
+    sim.retransmitUntilIdx = 0;
     // BBR reset
     sim.bbr_state = "startup";
     sim.bbr_btlBw_BytesPerMs = 0;
@@ -332,6 +345,16 @@
   function inHandshake(sim) {
     return sim.simTime < handshakeMs(sim);
   }
+  function rtoDelayMs(sim) {
+    const floor = Math.max(1, sim.rtoMinMs || DEFAULT_RTO_MIN_MS);
+    return Math.max(floor, sim.rtt || 1);
+  }
+  function cubicPacingRateBytesPerMs(sim) {
+    const rtt = Math.max(1, sim.rtt || 1);
+    const gain = Math.max(0.05, sim.cubicPacingGain || DEFAULT_CUBIC_PACING_GAIN);
+    const cwnd = Math.max(1, sim.cwndSeg || sim.initialCwndSeg || 1);
+    return (cwnd * sim.mss * gain) / rtt;
+  }
 
   function advertisedRwndBytes(sim) {
     return Math.max(0, sim.rmemSize - sim.rmemUsed);
@@ -353,9 +376,19 @@
   function inflightSegCount(sim) {
     let n = 0;
     for (let i = 0; i < sim.inflight.length; i++) {
-      if (!sim.inflight[i].done) n++;
+      if (!sim.inflight[i].done && !sim.inflight[i].abandoned) n++;
     }
     return n;
+  }
+  function queuedBytesNow(sim) {
+    let bytes = 0;
+    for (let i = 0; i < sim.inflight.length; i++) {
+      const p = sim.inflight[i];
+      if (p.done) continue;
+      const enq = typeof p.enqueuedAt === "number" ? p.enqueuedAt : p.sentAt;
+      if (sim.simTime >= enq && sim.simTime < p.sentAt) bytes += sim.mss;
+    }
+    return Math.min(bytes, sim.queueSizeBytes);
   }
 
   function maybeSendMore(sim) {
@@ -376,8 +409,22 @@
       sim.nextSendIdx < sim.segCount &&
       sim.nextSendIdx < sim.appNextWriteIdx
     ) {
+      while (
+        sim.nextSendIdx < sim.segCount &&
+        sim.ackedSet &&
+        sim.ackedSet[sim.nextSendIdx]
+      ) {
+        sim.nextSendIdx++;
+      }
+      if (
+        sim.nextSendIdx >= sim.segCount ||
+        sim.nextSendIdx >= sim.appNextWriteIdx
+      ) {
+        break;
+      }
       const idx = sim.nextSendIdx++;
-      sendSegment(sim, idx, false);
+      const isRetransmit = idx < sim.retransmitUntilIdx;
+      sendSegment(sim, idx, isRetransmit);
     }
   }
 
@@ -397,10 +444,9 @@
     const drainMbps = effectiveDrainMbps(sim);
     const serializeMs = (sim.mss * 8) / (drainMbps * 1000);
 
-    // Generic sender wire clock. For BBR, the sender paces packets at the
-    // current bbr_pacingRate_BytesPerMs so emissions are evenly spaced rather
-    // than bursting cwnd-worth at once. For custom/cubic the sender emits
-    // instantly (senderSerializeMs = 0) — current behavior preserved exactly.
+    // Generic sender wire clock. BBR is always paced. Cubic can optionally
+    // pace at cwnd/RTT × gain so we can compare bursty and paced senders while
+    // keeping the same loss-based cwnd algorithm.
     let senderSerializeMs;
     if (sim.mode === "tcp" && sim.ccMode === "bbr") {
       if (sim.bbr_pacingRate_BytesPerMs > 0) {
@@ -409,11 +455,16 @@
         // Bootstrap: enough trickle to get the first few delivery-rate samples.
         senderSerializeMs = sim.rtt / Math.max(1, sim.initialCwndSeg);
       }
+    } else if (sim.mode === "tcp" && sim.ccMode === "cubic" && sim.cubicPacing) {
+      senderSerializeMs = sim.mss / cubicPacingRateBytesPerMs(sim);
     } else {
       senderSerializeMs = 0;
     }
     const senderEmitAt = Math.max(sim.simTime, sim.lastSenderEmitTime + senderSerializeMs);
-    if (sim.mode === "tcp" && sim.ccMode === "bbr") {
+    if (
+      sim.mode === "tcp" &&
+      (sim.ccMode === "bbr" || (sim.ccMode === "cubic" && sim.cubicPacing))
+    ) {
       sim.lastSenderEmitTime = senderEmitAt;
     }
 
@@ -482,7 +533,8 @@
       lost,
       rtx: isRetransmit,
       done: false,
-      timeoutAt: sentAt + sim.rtt,
+      abandoned: false,
+      timeoutAt: pushedAt + rtoDelayMs(sim),
       wmemFreed: false,
       // BBR per-packet bookkeeping for delivery-rate sampling on ACK. The
       // pacer schedules emission (pushedAt) into the future, so the snapshot
@@ -509,7 +561,7 @@
     const lostIdx = sim.ackedCount;
     for (let i = 0; i < sim.inflight.length; i++) {
       const p = sim.inflight[i];
-      if (p.idx === lostIdx && !p.done) {
+      if (p.idx === lostIdx && !p.done && !p.abandoned) {
         p.done = true;
         sendSegment(sim, lostIdx, true);
         break;
@@ -530,6 +582,39 @@
     sim.ccPhase = "cong-avoid";
   }
 
+  function triggerCubicRto(sim) {
+    const flight = Math.max(1, inflightSegCount(sim));
+    const restartAt = sim.ackedCount;
+    const retransmitUntil = Math.max(sim.retransmitUntilIdx || 0, sim.nextSendIdx);
+
+    sim.preLossCwnd = sim.cwndSeg;
+    // RFC 5681's RTO path uses FlightSize, not an inflated recovery window,
+    // then restarts from a one-segment loss window.
+    sim.wmax = Math.max(2, Math.floor(flight));
+    sim.ssthresh = Math.max(2, Math.floor(flight / 2));
+    sim.cwndSeg = 1;
+    sim.ccPhase = "slow-start";
+    sim.lastLossSimTime = sim.simTime;
+    sim.cubicAnchored = true;
+    sim.dupAckCount = 0;
+    sim.inRecovery = false;
+    sim.recoveryHighSeq = 0;
+    sim.retransmitUntilIdx = retransmitUntil;
+
+    // RTO is a pipe-clearing event in this simplified model. Do not let a
+    // burst loss keep thousands of stale per-packet timers alive; restart the
+    // sender at the lowest unacked byte and let cwnd pace retransmission.
+    // Keep old packets visible until they naturally arrive/drop; they are no
+    // longer counted against cwnd and their timers no longer drive recovery.
+    for (let i = 0; i < sim.inflight.length; i++) {
+      const p = sim.inflight[i];
+      if (!p.done) p.abandoned = true;
+    }
+    sim.nextSendIdx = restartAt;
+    sim.lastPacketLeaveTime = sim.simTime;
+    sim.lastRouterReadTime = sim.simTime;
+  }
+
   // RFC 6582 NewReno partial-ACK retransmit. Called during fast recovery
   // each time a cumulative ACK advances ackedCount but does not pass
   // recoveryHighSeq — i.e. there's still at least one more hole below the
@@ -544,13 +629,13 @@
     // Don't double-send if a retransmit for this hole is already pending.
     for (let i = 0; i < sim.inflight.length; i++) {
       const p = sim.inflight[i];
-      if (p.idx === holeIdx && p.rtx && !p.done) return;
+      if (p.idx === holeIdx && p.rtx && !p.done && !p.abandoned) return;
     }
     // Mark the original (non-rtx) inflight entry done so its RTO path
     // doesn't fire later.
     for (let i = 0; i < sim.inflight.length; i++) {
       const p = sim.inflight[i];
-      if (p.idx === holeIdx && !p.rtx && !p.done) {
+      if (p.idx === holeIdx && !p.rtx && !p.done && !p.abandoned) {
         p.done = true;
         break;
       }
@@ -586,7 +671,7 @@
     let n = 0;
     for (let i = 0; i < sim.inflight.length; i++) {
       const p = sim.inflight[i];
-      if (!p.done && p.pushedAt <= sim.simTime) n++;
+      if (!p.done && !p.abandoned && p.pushedAt <= sim.simTime) n++;
     }
     return n * sim.mss;
   }
@@ -786,6 +871,30 @@
         p.sentSimTime = sim.simTime;
         p.delivSnapped = true;
       }
+      if (p.abandoned) {
+        if (!p.lost) {
+          if (sim.simTime >= p.arriveAt) {
+            if (!sim.recvSet[p.idx]) {
+              sim.recvSet[p.idx] = 1;
+              sim.rmemUsed = Math.min(sim.rmemSize, sim.rmemUsed + sim.mss);
+              sim.rmemSet[p.idx] = 1;
+            }
+            if (p.idx + 1 > sim.highestRecvd) sim.highestRecvd = p.idx + 1;
+          }
+          if (sim.simTime >= p.ackArriveAt) {
+            if (!sim.ackedSet[p.idx]) {
+              sim.ackedSet[p.idx] = 1;
+              sim.deliveredCount++;
+              if (p.idx > sim.highestAckedIdx) sim.highestAckedIdx = p.idx;
+              sim.wmemUsed = Math.max(0, sim.wmemUsed - sim.mss);
+            }
+            p.done = true;
+          }
+        } else if (sim.simTime >= p.timeoutAt) {
+          p.done = true;
+        }
+        continue;
+      }
       if (!p.lost) {
         if (sim.simTime >= p.ackArriveAt) {
           if (!sim.ackedSet[p.idx]) {
@@ -867,19 +976,15 @@
         }
       } else {
         if (sim.simTime >= p.timeoutAt) {
-          p.done = true;
           if (!sim.ackedSet[p.idx]) {
-            if (sim.ccMode === "cubic" && !sim.inRecovery) {
-              sim.preLossCwnd = sim.cwndSeg;
-              sim.wmax = sim.cwndSeg;
-              sim.ssthresh = Math.max(2, Math.floor(sim.cwndSeg * 0.7));
-              sim.cwndSeg = Math.max(1, sim.initialCwndSeg);
-              sim.ccPhase = "slow-start";
-              sim.lastLossSimTime = sim.simTime;
-              sim.cubicAnchored = true;
-              sim.dupAckCount = 0;
+            if (sim.ccMode === "cubic") {
+              triggerCubicRto(sim);
+            } else {
+              p.done = true;
+              sendSegment(sim, p.idx, true);
             }
-            sendSegment(sim, p.idx, true);
+          } else {
+            p.done = true;
           }
         }
       }
@@ -896,7 +1001,7 @@
       const n = sim.inflight.length;
       for (let i = 0; i < n; i++) {
         const p = sim.inflight[i];
-        if (p.done || !p.lost || p.rtx) continue;
+        if (p.done || p.abandoned || !p.lost || p.rtx) continue;
         if (sim.highestAckedIdx >= p.idx + 3 && !sim.ackedSet[p.idx]) {
           p.done = true;
           sendSegment(sim, p.idx, true);
@@ -1056,6 +1161,9 @@
     effectiveWindowSeg,
     effectiveDrainMbps,
     inflightSegCount,
+    queuedBytesNow,
+    rtoDelayMs,
+    cubicPacingRateBytesPerMs,
     handshakeMs,
     inHandshake,
     // data
@@ -1065,6 +1173,8 @@
       BAND_RTT_MAX_MS,
       BAND_BW_MIN_MBPS,
       BAND_BW_MAX_MBPS,
+      DEFAULT_RTO_MIN_MS,
+      DEFAULT_CUBIC_PACING_GAIN,
     },
   };
 });

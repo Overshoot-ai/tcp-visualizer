@@ -57,6 +57,18 @@
       if (u.setInitCwnd) u.setInitCwnd(v);
       else if (u.setKnob) u.setKnob("initCwnd", "initCwndN", v);
     },
+    cubicPacing: (v) => {
+      if (v == null) return;
+      _sim.cubicPacing = !!v;
+      ui().applyCubicPacingUi && ui().applyCubicPacingUi();
+    },
+    cubicPacingGain: (v) => {
+      if (v == null) return;
+      _sim.cubicPacingGain = v;
+      const u = ui();
+      if (u.setCubicPacingGain) u.setCubicPacingGain(v);
+      else if (u.setKnob) u.setKnob("cubicPacingGain", "cubicPacingGainN", v);
+    },
     routerReadMbps: (v) => {
       _sim.routerReadMbps = v;
       const u = ui();
@@ -316,6 +328,8 @@
           mss: cfg.mss_B,
           payloadMb: cfg.payload_MB,
           initialCwndSeg: cfg.initial_cwnd_seg,
+          cubicPacing: cfg.cubic_pacing,
+          cubicPacingGain: cfg.cubic_pacing_gain,
           routerReadMbps: cfg.router_read_mbps,
           routerWriteMbps: cfg.router_write_mbps != null ? cfg.router_write_mbps : cfg.link_bw_mbps,
           linkBwMbps: cfg.link_bw_mbps,

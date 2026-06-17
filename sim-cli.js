@@ -18,6 +18,8 @@
  *   --seconds <n>                 (default 5)
  *   --interval <ms>               (default 100; sample period in sim ms)
  *   --initial-cwnd <n>            (default: the preset's initCwndSeg)
+ *   --cubic-pacing                (pace cubic at cwnd/RTT × gain)
+ *   --cubic-pacing-gain <n>       (default 1.2 when pacing is enabled)
  *   --router-read-mbps <n>        (default: the preset's routerReadMbps)
  *   --router-write-mbps <n>       (default: the preset's routerWriteMbps)
  *   --artifact                    (also dump the JSON artifact to stderr)
@@ -37,6 +39,8 @@ function parseArgs(argv) {
     seconds: 5,
     interval: 100,
     initialCwnd: null, // null = use the preset's initCwndSeg
+    cubicPacing: null,
+    cubicPacingGain: null,
     routerReadMbps: null,
     routerWriteMbps: null,
     artifact: false,
@@ -53,6 +57,9 @@ function parseArgs(argv) {
       case "--seconds": out.seconds = parseFloat(next); i++; break;
       case "--interval": out.interval = parseFloat(next); i++; break;
       case "--initial-cwnd": out.initialCwnd = parseInt(next, 10); i++; break;
+      case "--cubic-pacing": out.cubicPacing = true; break;
+      case "--no-cubic-pacing": out.cubicPacing = false; break;
+      case "--cubic-pacing-gain": out.cubicPacingGain = parseFloat(next); i++; break;
       case "--router-read-mbps": out.routerReadMbps = parseFloat(next); i++; break;
       case "--router-write-mbps": out.routerWriteMbps = parseFloat(next); i++; break;
       case "--queue-kb": out.queueKB = parseInt(next, 10); i++; break;
@@ -87,7 +94,8 @@ function printHelp() {
   console.error(
     "Usage: node sim-cli.js [--preset " + Object.keys(presets).join("|") + "] " +
       "[--cc custom|cubic|bbr] [--mode tcp|udp] [--seconds N] " +
-      "[--interval ms] [--initial-cwnd N] [--router-read-mbps N] [--router-write-mbps N] [--queue-kb N] [--handshake] [--artifact]"
+      "[--interval ms] [--initial-cwnd N] [--cubic-pacing] [--cubic-pacing-gain N] " +
+      "[--router-read-mbps N] [--router-write-mbps N] [--queue-kb N] [--handshake] [--artifact]"
   );
 }
 
@@ -104,6 +112,8 @@ function main() {
   sim.mode = args.mode;
   if (args.cc != null) sim.ccMode = args.cc;
   if (args.initialCwnd != null) sim.initialCwndSeg = args.initialCwnd;
+  if (args.cubicPacing != null) sim.cubicPacing = args.cubicPacing;
+  if (args.cubicPacingGain != null) sim.cubicPacingGain = args.cubicPacingGain;
   if (args.routerReadMbps != null) sim.routerReadMbps = args.routerReadMbps;
   if (args.routerWriteMbps != null) sim.routerWriteMbps = args.routerWriteMbps;
   if (args.queueKB != null) {
@@ -181,6 +191,9 @@ function main() {
     " router_write_Mbps=" + cfg.router_write_mbps +
     " linkBw_Mbps=" + cfg.link_bw_mbps +
     " effective_drain_Mbps=" + cfg.effective_drain_mbps +
+    " rto_ms=" + cfg.rto_ms +
+    " cubic_pacing=" + cfg.cubic_pacing +
+    " cubic_pacing_gain=" + cfg.cubic_pacing_gain +
     " queue_KB=" + Math.round(cfg.queue_KB)
   );
   console.log("# avg_goodput_Mbps=" + sm.goodput_Mbps.toFixed(3));

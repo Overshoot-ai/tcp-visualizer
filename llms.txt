@@ -104,8 +104,8 @@ Anchored to what each one looks like on screen:
 - **Fast retransmit**: when 3 dup-ACKs arrive (signal that a packet is missing), the sender retransmits without waiting
   for an RTO timeout.
 - **Fast recovery**: the cwnd reduction (×0.7) is mild and recovery proceeds via cubic regrowth; cwnd doesn't crash to
-  the initial value.
-- **RTO** (retransmission timeout): the catastrophic loss path. Cwnd resets to the initial value (e.g., 10) and
+  the one-packet RTO loss window unless recovery fails.
+- **RTO** (retransmission timeout): the catastrophic loss path. Cwnd resets to a one-packet loss window and
   slow-start restarts. Reserved for serious problems.
 - **Router read / write**: router read is the ingress rate into the bottleneck queue; router write is the router's
   egress capacity. The actual queue drain is `min(linkBwMbps, routerWriteMbps)`. Queue builds when router read exceeds
@@ -126,6 +126,8 @@ All knobs are settable via `SimAgent.configure({...})` or via the sliders in the
 | RTT (ms) | `rtt` | 1–1000 | Round-trip time. Packets take RTT/2 across the band. |
 | cwnd (pkts) | `cwnd` | 1–65536 | Hard cap on unacked segments. Used directly in `custom` cc mode; auto-managed in `cubic`/`bbr`. |
 | Init cwnd (pkts) | `initialCwndSeg` | 1–65536 | Cwnd at the start of a cubic or BBR run (RFC 6928 default is 10). |
+| Cubic pacing | `cubicPacing` | boolean | When true, Cubic keeps its cwnd/loss logic but spaces sends at `cwnd_bytes / RTT × cubicPacingGain`. |
+| Pacing gain | `cubicPacingGain` | 0.5–3 | Cubic pacer gain. `1.0` spreads one cwnd over one RTT; values above 1 probe more aggressively. |
 | Packet size (MSS) | `mss` | 500–9000 | Max data bytes per packet. |
 | Payload (MB) | `payloadMb` | 0.1–500 | Total request size. |
 | Sim speed | `simSpeed` | 0–1 | Wall-clock to sim-clock ratio (log scale). 0.02 = 50× slow-mo for watching. |
@@ -171,6 +173,8 @@ Supported startup params:
 |---|---|---|
 | `preset` or `p` | preset key | Loads that preset; unknown keys fall back to `cold-iw10`. |
 | `cc` or `ccMode` | `custom` \| `cubic` \| `bbr` | Overrides the preset congestion-control mode. |
+| `cubicPacing`, `paceCubic`, or `pacing` | `1`/`0`, `true`/`false`, `on`/`off` | Enables/disables optional Cubic sender pacing. |
+| `cubicPacingGain`, `pacingGain`, or `paceGain` | number | Sets Cubic pacer gain. |
 | `mode` | `tcp` \| `udp` | Overrides transport mode. |
 | `handshake` | `cold`/`warm`, `true`/`false`, `1`/`0` | Sets TCP handshake visualization. |
 | `speed` or `simSpeed` | 0–1 | Sets visual playback speed. |
@@ -351,10 +355,12 @@ The agent API lives in the page's JavaScript context. To reach it from external 
 
 This is a teaching model, not a packet-accurate emulator. `link_bw` represents path capacity, router write represents
 router egress capacity, and the queue drains at `min(link_bw, router_write)`. Router read controls how fast bursts enter
-that bottleneck queue. Cubic sends are ACK-clocked but unpaced — a cwnd-worth of segments can hit the queue up to the
-router-read rate, which makes shallow-buffer scenarios harsher than a fully paced sender. Hystart exits
+that bottleneck queue. Cubic sends are ACK-clocked and unpaced by default — a cwnd-worth of segments can hit the queue up to the
+router-read rate, which makes shallow-buffer scenarios harsher than a fully paced sender. Optional Cubic pacing spaces
+sends at `cwnd_bytes / RTT × cubicPacingGain` while keeping Cubic's cwnd and loss-response logic. Hystart exits
 slow-start at exactly BDP and switches to linear AIMD growth until the first loss anchors the
-cubic curve. The RTO model is simplified (fires one RTT after send; no exponential backoff). BBR repairs losses
+cubic curve. The RTO model is simplified (uses a fixed minimum timeout floor, no SRTT variance tracking or
+exponential backoff; restarts from a one-packet loss window). BBR repairs losses
 quickly (SACK-style: an unACKed segment with 3 ACKed segments above it is retransmitted immediately, plus dup-ACK
 fast retransmit) but ignores them for rate control, as BBRv1 largely did — its window/pacing come from the
 BtlBw/RTprop model only, so random loss barely dents BBR goodput while it cripples cubic. The `rto` event is not
